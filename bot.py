@@ -13,6 +13,9 @@ import importlib.util
 import urllib.request
 import json
 import subprocess
+import hashlib
+import uuid
+from datetime import datetime
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from openpyxl import load_workbook
@@ -22,10 +25,137 @@ PUERTO_CHROME = 9222   # Puerto de depuración de Chrome
 
 VERSION_ACTUAL = "v1.0.0"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/Danielcastro5/bot-invima/main/version.json"
+FIREBASE_DB_URL = "https://bot-invima-licencias-default-rtdb.firebaseio.com"
 
 # Configuración inicial de CustomTkinter
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
+
+
+# --------------------------------------------------------------------------
+#  SISTEMA DE LICENCIAMIENTO SEGURO CON HUID & FIREBASE
+# --------------------------------------------------------------------------
+def obtener_hwid():
+    """Genera un identificador único e inalterable del computador (HWID)."""
+    try:
+        cmd = "wmic csproduct get uuid"
+        output = subprocess.check_output(cmd, shell=True).decode().split('\n')
+        if len(output) > 1 and output[1].strip():
+            uuid_str = output[1].strip()
+            return hashlib.sha256(uuid_str.encode()).hexdigest()[:16].upper()
+    except Exception:
+        pass
+
+    node_str = str(uuid.getnode()) + os.getenv("COMPUTERNAME", "PC")
+    return hashlib.sha256(node_str.encode()).hexdigest()[:16].upper()
+
+
+def obtener_ruta_licencia_local():
+    """Retorna la ruta del archivo local donde se guarda la licencia activada."""
+    base = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
+    carpeta = os.path.join(base, "BotINVIMA_Data")
+    os.makedirs(carpeta, exist_ok=True)
+    return os.path.join(carpeta, "license.json")
+
+
+def guardar_licencia_local(clave, info_dict):
+    try:
+        ruta = obtener_ruta_licencia_local()
+        datos = {
+            "clave": clave,
+            "empresa": info_dict.get("empresa", ""),
+            "hwid": obtener_hwid(),
+            "vencimiento": info_dict.get("vencimiento", "")
+        }
+        with open(ruta, "w", encoding="utf-8") as f:
+            json.dump(datos, f, indent=2)
+    except Exception as e:
+        print(f"Error guardando licencia local: {e}")
+
+
+def leer_licencia_local():
+    try:
+        ruta = obtener_ruta_licencia_local()
+        if os.path.exists(ruta):
+            with open(ruta, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return None
+
+
+def validar_licencia_firebase(clave_licencia):
+    """
+    Verifica la clave de licencia en Firebase Realtime Database.
+    """
+    clave = clave_licencia.strip().upper()
+    if not clave:
+        return False, "Por favor ingresa una clave de licencia."
+
+    hwid = obtener_hwid()
+    url = f"{FIREBASE_DB_URL}/licencias/{clave}.json"
+
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            raw_data = resp.read().decode("utf-8")
+            if not raw_data or raw_data == "null":
+                return False, f"La clave de licencia '{clave}' no existe."
+
+            data = json.loads(raw_data)
+
+        if not data.get("activa", False):
+            return False, "Licencia inactiva o suspendida por el proveedor."
+
+        vencimiento = data.get("vencimiento", "")
+        if vencimiento:
+            try:
+                fecha_venc = datetime.strptime(vencimiento, "%Y-%m-%d")
+                if datetime.now() > fecha_venc:
+                    return False, f"Licencia vencida el {vencimiento}. Contacta al soporte para renovar."
+            except Exception:
+                pass
+
+        equipos = data.get("equipos", {})
+        if not isinstance(equipos, dict):
+            equipos = {}
+
+        max_equipos = int(data.get("max_equipos", 1))
+
+        if hwid in equipos:
+            info = {
+                "clave": clave,
+                "empresa": data.get("empresa", "Cliente"),
+                "vencimiento": vencimiento or "Permanente",
+                "equipos_usados": len(equipos),
+                "max_equipos": max_equipos
+            }
+            guardar_licencia_local(clave, info)
+            return True, info
+
+        if len(equipos) >= max_equipos:
+            return False, f"Límite de dispositivos alcanzado (Máximo {max_equipos} equipo(s) para esta licencia)."
+
+        # Registrar este nuevo equipo (HWID) en Firebase
+        nombre_pc = os.getenv("COMPUTERNAME", f"Equipo_{len(equipos)+1}")
+        url_put = f"{FIREBASE_DB_URL}/licencias/{clave}/equipos/{hwid}.json"
+        body = json.dumps(nombre_pc).encode("utf-8")
+        req_put = urllib.request.Request(url_put, data=body, headers={"Content-Type": "application/json"}, method="PUT")
+        with urllib.request.urlopen(req_put, timeout=10) as resp_put:
+            pass
+
+        info = {
+            "clave": clave,
+            "empresa": data.get("empresa", "Cliente"),
+            "vencimiento": vencimiento or "Permanente",
+            "equipos_usados": len(equipos) + 1,
+            "max_equipos": max_equipos
+        }
+        guardar_licencia_local(clave, info)
+        return True, info
+
+    except Exception as e:
+        return False, f"Error al verificar la licencia en línea: {e}"
 
 
 # --------------------------------------------------------------------------
@@ -1022,9 +1152,95 @@ class App(ctk.CTk):
         self.en_ejecucion = False
         self.num_exitos = 0
         self.num_errores = 0
+        self.licencia_info = None
 
         self._construir_interfaz()
         buscar_actualizaciones_github(self)
+        self.after(300, self._verificar_licencia_inicial)
+
+    def _verificar_licencia_inicial(self):
+        datos_locales = leer_licencia_local()
+        if datos_locales and "clave" in datos_locales:
+            clave = datos_locales["clave"]
+            valido, res = validar_licencia_firebase(clave)
+            if valido:
+                self.licencia_info = res
+                self.log(f"🔑 LICENCIA ACTIVA: {res.get('empresa')} (Equipos: {res.get('equipos_usados')}/{res.get('max_equipos')})", "success")
+                return
+
+        # Si no hay licencia local o no es válida, pedir activación
+        self.mostrar_modal_activacion_licencia()
+
+    def mostrar_modal_activacion_licencia(self, mensaje_error_inicial=""):
+        top = ctk.CTkToplevel(self)
+        top.title("🔐 Activación de Licencia - Bot INVIMA")
+        top.geometry("520x360")
+        top.resizable(False, False)
+        top.attributes("-topmost", True)
+        top.grab_set()
+
+        lbl_title = ctk.CTkLabel(
+            top,
+            text="🔐 Activación de Licencia de Software",
+            font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
+            text_color="#F8FAFC"
+        )
+        lbl_title.pack(pady=(22, 6))
+
+        lbl_sub = ctk.CTkLabel(
+            top,
+            text="Ingresa tu Clave de Licencia proporcionada por el proveedor\npara activar el Automatizador INVIMA en este equipo.",
+            font=ctk.CTkFont(size=12),
+            text_color="#94A3B8"
+        )
+        lbl_sub.pack(pady=(0, 16))
+
+        entry_clave = ctk.CTkEntry(
+            top,
+            placeholder_text="Ej: DEMO-2026-INVIMA",
+            width=380,
+            height=42,
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        entry_clave.pack(pady=8)
+
+        lbl_status = ctk.CTkLabel(
+            top,
+            text=mensaje_error_inicial,
+            font=ctk.CTkFont(size=12),
+            text_color="#EF4444" if mensaje_error_inicial else "#94A3B8"
+        )
+        lbl_status.pack(pady=6)
+
+        def _activar():
+            clave_ingresada = entry_clave.get().strip().upper()
+            if not clave_ingresada:
+                lbl_status.configure(text="❌ Por favor ingresa tu clave de licencia.", text_color="#EF4444")
+                return
+
+            lbl_status.configure(text="⏳ Verificando licencia en línea...", text_color="#3B82F6")
+            top.update()
+
+            valido, res = validar_licencia_firebase(clave_ingresada)
+            if valido:
+                self.licencia_info = res
+                top.destroy()
+                self.log(f"🎉 ¡Licencia Activada Exitosamente! Empresa: {res.get('empresa')}", "success")
+                messagebox.showinfo("Licencia Activada", f"¡Bienvenido {res.get('empresa')}!\n\nTu software ha quedado activado en este equipo.")
+            else:
+                lbl_status.configure(text=f"❌ {res}", text_color="#EF4444")
+
+        btn_activar = ctk.CTkButton(
+            top,
+            text="🚀 Activar Licencia Ahora",
+            font=ctk.CTkFont(weight="bold", size=14),
+            fg_color="#3B82F6",
+            hover_color="#2563EB",
+            height=42,
+            width=220,
+            command=_activar
+        )
+        btn_activar.pack(pady=(12, 10))
 
     def mostrar_modal_actualizacion(self, data):
         version_n = data.get("version", "Nueva versión")
