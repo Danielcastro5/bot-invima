@@ -358,6 +358,11 @@ def ejecutar_actualizacion_automatica(exe_url, config_url, app):
             with urllib.request.urlopen(req_exe, timeout=60) as resp, open(ruta_exe_nuevo, "wb") as out_file:
                 out_file.write(resp.read())
 
+        if os.path.exists(ruta_exe_nuevo) and os.path.getsize(ruta_exe_nuevo) < 10 * 1024 * 1024:
+            if os.path.exists(ruta_exe_nuevo):
+                os.remove(ruta_exe_nuevo)
+            raise Exception("El archivo de actualización descargado está incompleto o dañado.")
+
         # 2. Descargar nuevo config.py
         if config_url:
             try:
@@ -370,7 +375,9 @@ def ejecutar_actualizacion_automatica(exe_url, config_url, app):
         # 3. Crear script de reemplazo en segundo plano
         ruta_bat = os.path.join(base_dir, "actualizar_bot.bat")
         script_bat = f"""@echo off
-timeout /t 2 /nobreak > nul
+timeout /t 3 /nobreak > nul
+taskkill /F /IM "Automatizador INVIMA.exe" 2>nul
+timeout /t 1 /nobreak > nul
 if exist "{ruta_exe_nuevo}" (
     move /y "{ruta_exe_nuevo}" "{ruta_exe_actual}"
     start "" "{ruta_exe_actual}"

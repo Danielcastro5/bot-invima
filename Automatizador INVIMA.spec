@@ -4,6 +4,15 @@ from PyInstaller.utils.hooks import collect_all
 datas = [('config.py', '.'), ('app_icon.ico', '.'), ('MANUAL_DE_USUARIO.txt', '.')]
 binaries = []
 hiddenimports = []
+
+# Incluir DLLs nativas C-Runtime para evitar error Failed to load Python DLL
+import os, sys
+sys_dir = os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32")
+for dll in ["vcruntime140.dll", "msvcp140.dll", "vcruntime140_1.dll", "vcomp140.dll"]:
+    dll_path = os.path.join(sys_dir, dll)
+    if os.path.exists(dll_path):
+        binaries.append((dll_path, '.'))
+
 tmp_ret = collect_all('customtkinter')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
