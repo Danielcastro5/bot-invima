@@ -1,9 +1,0 @@
-# Ignorar carpeta de compilación y ejecutables pesados en el repositorio de código
-build/
-dist/
-*.exe
-*.zip
-__pycache__/
-.vscode/
-.idea/
-reporte_errores_*.txt
