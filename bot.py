@@ -1472,6 +1472,128 @@ class App(ctk.CTk):
 
         self.after(500, _construir_dialogo)
 
+    def mostrar_modal_manual(self):
+        top = ctk.CTkToplevel(self)
+        top.title("📖 Manual de Usuario y Cláusula Legal - Automatizador INVIMA")
+        top.geometry("700x580")
+        top.resizable(True, True)
+        top.attributes("-topmost", True)
+
+        lbl_title = ctk.CTkLabel(
+            top,
+            text="📖 Manual de Operación y Cláusula de Exención de Responsabilidad",
+            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
+            text_color="#F8FAFC"
+        )
+        lbl_title.pack(pady=(16, 6))
+
+        txt_manual = ctk.CTkTextbox(
+            top,
+            width=660,
+            height=440,
+            fg_color="#0F172A",
+            text_color="#E2E8F0",
+            font=ctk.CTkFont(family="Consolas", size=12)
+        )
+        txt_manual.pack(pady=8, padx=16, fill="both", expand=True)
+
+        base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+        ruta_txt = os.path.join(base_dir, "MANUAL_DE_USUARIO.txt")
+        texto_contenido = ""
+
+        if os.path.exists(ruta_txt):
+            try:
+                with open(ruta_txt, "r", encoding="utf-8") as f:
+                    texto_contenido = f.read()
+            except Exception:
+                pass
+
+        if not texto_contenido:
+            texto_contenido = """========================================================================
+             MANUAL DE USUARIO Y GUÍA DE OPERACIÓN
+                   AUTOMATIZADOR INVIMA v1.1
+========================================================================
+
+1. REQUISITOS PREVIOS DEL SISTEMA
+------------------------------------------------------------------------
+- Sistema Operativo: Windows 10 o Windows 11.
+- Navegador: Google Chrome instalado.
+- Formato de Archivo: Planillas en formato Microsoft Excel (.xlsx).
+- Licencia Activa: Clave de Licencia proporcionada por el proveedor.
+
+2. PASOS PARA LA EJECUCIÓN DEL PROGRAMA
+------------------------------------------------------------------------
+Paso 1: Abre la aplicación "Automatizador INVIMA.exe".
+Paso 2: Si es la primera vez, ingresa tu Clave de Licencia y presiona "Activar Licencia".
+Paso 3: Haz clic en el botón "🌐 Abrir Chrome Bot" situado en la barra superior.
+Paso 4: En la ventana de Chrome que se abre, ingresa al portal de INVIMA con tus credenciales y navega exactamente hasta el formulario del trámite a diligenciar.
+Paso 5: Selecciona el Proceso a automatizar en la aplicación (ej: "Información General (Presentaciones)" o "Composición").
+Paso 6: Haz clic en "📂 Cargar Excel (.xlsx)" y selecciona tu archivo de datos.
+Paso 7: Haz clic en "🚀 Comenzar Automatización".
+
+3. ESTRUCTURA Y REGLAS DE LAS HOJAS DE EXCEL
+------------------------------------------------------------------------
+⚠️ REGLA DE ORO 1: Los nombres de las Hojas (pestañas de Excel) deben ser EXACTOS.
+⚠️ REGLA DE ORO 2: Los encabezados de las columnas en la Fila 1 deben coincidir al 100% con los requeridos.
+⚠️ REGLA DE ORO 3: Los valores y textos ingresados en las celdas (ej: tipos de envase, materiales, unidades de medida, etc.) deben coincidir AL 100% con las opciones desplegables del portal INVIMA, incluyendo tildes, mayúsculas y espacios. Si el portal tiene "Cojín", en Excel DEBE decir "Cojín" (no "cojin" ni "Cojin").
+
+--- PROCESO 1: Información General (Presentaciones) ---
+Nombre exacto de la Hoja en Excel: Presentaciones comerciales
+Encabezados requeridos en la Fila 1:
+  • Columna: Contenido Neto
+  • Columna: Unidad de Medida
+  • Columna: Tipo de Envase Primario
+  • Columna: Material del Envase Primario
+  • Columna: Tipo de Envase Secundario
+  • Columna: Material del Envase Secundario
+  • Columna: Observaciones
+
+--- PROCESO 2: Composición ---
+Nombre exacto de la Hoja en Excel: Composición
+Encabezados requeridos en la Fila 1:
+  • Columna: Tipo
+  • Columna: Ingrediente / Mezcla
+  • Columna: Función
+  • Columna: Listado de referencia
+  • Columna: Cantidad
+  • Columna: Unidad de medida
+  • Columna: ¿Es nanomaterial?
+  • Columna: Tamaño de partícula (nm)
+
+4. MANEJO DE ERRORES Y REPORTES
+------------------------------------------------------------------------
+- Si una fila falla en el Excel, el bot realizará hasta 3 reintentos automáticos por fila.
+- Si tras 3 intentos no se logra registrar la fila, el bot guardará un reporte detallado en un archivo "reporte_errores_YYYY-MM-DD.txt" con el número de fila exacto y la causa, y continuará con las siguientes filas sin detener la ejecución.
+
+5. CLÁUSULA DE EXENCIÓN DE RESPONSABILIDAD LEGAL (DISCLAIMER)
+------------------------------------------------------------------------
+• El software Automatizador INVIMA es una herramienta de asistencia y automatización robótica de tareas (RPA).
+• EL DESARROLLADOR / PROVEEDOR NO SE HACE RESPONSABLE por mal uso de la herramienta, datos mal digitados por el usuario, errores en la plantilla Excel, nombres de encabezados incorrectos, inconsistencias en los registros ante la entidad INVIMA o multas/sanciones derivadas de información errónea ingresada por el usuario.
+• Es responsabilidad exclusiva del usuario verificar y validar la exactitud de los datos ingresados en el archivo Excel y en la plataforma de INVIMA antes y después de ejecutar el proceso de automatización.
+========================================================================
+"""
+
+        txt_manual.insert("0.0", texto_contenido)
+        txt_manual.configure(state="disabled")
+
+        def _abrir_txt():
+            if os.path.exists(ruta_txt):
+                os.startfile(ruta_txt)
+            else:
+                with open(ruta_txt, "w", encoding="utf-8") as f:
+                    f.write(texto_contenido)
+                os.startfile(ruta_txt)
+
+        btn_abrir = ctk.CTkButton(
+            top,
+            text="📄 Abrir / Guardar Archivo TXT",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color="#3B82F6",
+            hover_color="#2563EB",
+            command=_abrir_txt
+        )
+        btn_abrir.pack(pady=10)
+
     def _obtener_lista_procesos(self):
         if hasattr(self.cfg, "PROCESOS") and isinstance(self.cfg.PROCESOS, dict):
             return list(self.cfg.PROCESOS.keys())
@@ -1502,6 +1624,18 @@ class App(ctk.CTk):
         )
         lbl_subtitle.grid(row=1, column=0, padx=16, pady=(0, 12), sticky="w")
 
+        btn_manual = ctk.CTkButton(
+            frame_header,
+            text="📖 Manual de Uso",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            fg_color="#6366F1",
+            hover_color="#4F46E5",
+            height=32,
+            width=130,
+            command=self.mostrar_modal_manual
+        )
+        btn_manual.grid(row=0, column=1, padx=(0, 8), pady=12, sticky="e")
+
         btn_chrome = ctk.CTkButton(
             frame_header,
             text="🌐 Abrir Chrome Bot",
@@ -1512,7 +1646,7 @@ class App(ctk.CTk):
             width=140,
             command=lambda: abrir_chrome_automatizado(self)
         )
-        btn_chrome.grid(row=0, column=1, padx=(0, 10), pady=12, sticky="e")
+        btn_chrome.grid(row=0, column=2, padx=(0, 8), pady=12, sticky="e")
 
         self.badge_estado = ctk.CTkLabel(
             frame_header,
@@ -1524,7 +1658,7 @@ class App(ctk.CTk):
             padx=12,
             pady=4
         )
-        self.badge_estado.grid(row=0, column=2, rowspan=2, padx=16, pady=12, sticky="e")
+        self.badge_estado.grid(row=0, column=3, rowspan=2, padx=16, pady=12, sticky="e")
 
         # 2. SELECTOR DE PROCESO DE AUTOMATIZACIÓN
         frame_proceso = ctk.CTkFrame(self, fg_color="#0F172A", corner_radius=12)

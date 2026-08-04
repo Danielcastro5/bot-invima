@@ -1,0 +1,62 @@
+========================================================================
+             MANUAL DE USUARIO Y GUÍA DE OPERACIÓN
+                   AUTOMATIZADOR INVIMA v1.1
+========================================================================
+
+1. REQUISITOS PREVIOS DEL SISTEMA
+------------------------------------------------------------------------
+- Sistema Operativo: Windows 10 o Windows 11.
+- Navegador: Google Chrome instalado.
+- Formato de Archivo: Planillas en formato Microsoft Excel (.xlsx).
+- Licencia Activa: Clave de Licencia proporcionada por el proveedor.
+
+2. PASOS PARA LA EJECUCIÓN DEL PROGRAMA
+------------------------------------------------------------------------
+Paso 1: Abre la aplicación "Automatizador INVIMA.exe".
+Paso 2: Si es la primera vez, ingresa tu Clave de Licencia y presiona "Activar Licencia".
+Paso 3: Haz clic en el botón "🌐 Abrir Chrome Bot" situado en la barra superior.
+Paso 4: En la ventana de Chrome que se abre, ingresa al portal de INVIMA con tus credenciales y navega exactamente hasta el formulario del trámite a diligenciar.
+Paso 5: Selecciona el Proceso a automatizar en la aplicación (ej: "Información General (Presentaciones)" o "Composición").
+Paso 6: Haz clic en "📂 Cargar Excel (.xlsx)" y selecciona tu archivo de datos.
+Paso 7: Haz clic en "🚀 Comenzar Automatización".
+
+3. ESTRUCTURA Y REGLAS DE LAS HOJAS DE EXCEL
+------------------------------------------------------------------------
+⚠️ REGLA DE ORO 1: Los nombres de las Hojas (pestañas de Excel) deben ser EXACTOS.
+⚠️ REGLA DE ORO 2: Los encabezados de las columnas en la Fila 1 deben coincidir al 100% con los requeridos.
+⚠️ REGLA DE ORO 3: Los valores y textos ingresados en las celdas (ej: tipos de envase, materiales, unidades de medida, etc.) deben coincidir AL 100% con las opciones desplegables del portal INVIMA, incluyendo tildes, mayúsculas y espacios. Si el portal tiene "Cojín", en Excel DEBE decir "Cojín" (no "cojin" ni "Cojin").
+
+--- PROCESO 1: Información General (Presentaciones) ---
+Nombre exacto de la Hoja en Excel: Presentaciones comerciales
+Encabezados requeridos en la Fila 1:
+  • Columna: Contenido Neto
+  • Columna: Unidad de Medida
+  • Columna: Tipo de Envase Primario
+  • Columna: Material del Envase Primario
+  • Columna: Tipo de Envase Secundario
+  • Columna: Material del Envase Secundario
+  • Columna: Observaciones
+
+--- PROCESO 2: Composición ---
+Nombre exacto de la Hoja en Excel: Composición
+Encabezados requeridos en la Fila 1:
+  • Columna: Tipo
+  • Columna: Ingrediente / Mezcla
+  • Columna: Función
+  • Columna: Listado de referencia
+  • Columna: Cantidad
+  • Columna: Unidad de medida
+  • Columna: ¿Es nanomaterial?
+  • Columna: Tamaño de partícula (nm)
+
+4. MANEJO DE ERRORES Y REPORTES
+------------------------------------------------------------------------
+- Si una fila falla en el Excel, el bot realizará hasta 3 reintentos automáticos por fila.
+- Si tras 3 intentos no se logra registrar la fila, el bot guardará un reporte detallado en un archivo "reporte_errores_YYYY-MM-DD.txt" con el número de fila exacto y la causa, y continuará con las siguientes filas sin detener la ejecución.
+
+5. CLÁUSULA DE EXENCIÓN DE RESPONSABILIDAD LEGAL (DISCLAIMER)
+------------------------------------------------------------------------
+• El software Automatizador INVIMA es una herramienta de asistencia y automatización robótica de tareas (RPA).
+• EL DESARROLLADOR / PROVEEDOR NO SE HACE RESPONSABLE por mal uso de la herramienta, datos mal digitados por el usuario, errores en la plantilla Excel, nombres de encabezados incorrectos, inconsistencias en los registros ante la entidad INVIMA o multas/sanciones derivadas de información errónea ingresada por el usuario.
+• Es responsabilidad exclusiva del usuario verificar y validar la exactitud de los datos ingresados en el archivo Excel y en la plataforma de INVIMA antes y después de ejecutar el proceso de automatización.
+========================================================================
