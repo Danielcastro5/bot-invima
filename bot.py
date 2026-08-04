@@ -15,7 +15,9 @@ import json
 import subprocess
 import hashlib
 import uuid
+import base64
 from datetime import datetime
+import socket
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from openpyxl import load_workbook
@@ -26,6 +28,7 @@ PUERTO_CHROME = 9222   # Puerto de depuración de Chrome
 VERSION_ACTUAL = "v1.0.0"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/Danielcastro5/bot-invima/main/version.json"
 FIREBASE_DB_URL = "https://bot-invima-licencias-default-rtdb.firebaseio.com"
+SECRET_SALT_LICENCIA = "BOT_INVIMA_SECURE_AUTH_SALT_2026_V1"
 
 # Configuración inicial de CustomTkinter
 ctk.set_appearance_mode("Dark")
@@ -33,7 +36,69 @@ ctk.set_default_color_theme("blue")
 
 
 # --------------------------------------------------------------------------
-#  SISTEMA DE LICENCIAMIENTO SEGURO CON HUID & FIREBASE
+#  LANZADOR AUTOMÁTICO DE GOOGLE CHROME EN MODO DEPURACIÓN (PUERTO 9222)
+# --------------------------------------------------------------------------
+def esta_puerto_abierto(puerto=9222):
+    try:
+        with socket.create_connection(("127.0.0.1", puerto), timeout=1):
+            return True
+    except Exception:
+        return False
+
+
+def abrir_chrome_automatizado(app=None):
+    """
+    Inicia Google Chrome en modo de depuración remota (puerto 9222) de forma transparente.
+    """
+    if esta_puerto_abierto(PUERTO_CHROME):
+        if app:
+            app.log("✅ Chrome automatizado ya se encuentra en ejecución en puerto 9222.", "info")
+        return True
+
+    rutas_chrome = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), r"Google\Chrome\Application\chrome.exe"),
+        os.path.join(os.environ.get("PROGRAMFILES", ""), r"Google\Chrome\Application\chrome.exe"),
+        os.path.join(os.environ.get("PROGRAMFILES(X86)", ""), r"Google\Chrome\Application\chrome.exe")
+    ]
+
+    exe_chrome = None
+    for r in rutas_chrome:
+        if os.path.exists(r):
+            exe_chrome = r
+            break
+
+    if not exe_chrome:
+        if app:
+            app.log("❌ No se encontró Google Chrome en las rutas estándar del sistema.", "error")
+        return False
+
+    user_data_dir = r"C:\chrome-bot"
+    os.makedirs(user_data_dir, exist_ok=True)
+
+    cmd = [
+        exe_chrome,
+        f"--remote-debugging-port={PUERTO_CHROME}",
+        f"--user-data-dir={user_data_dir}"
+    ]
+
+    try:
+        subprocess.Popen(cmd)
+        time.sleep(2)
+        if app:
+            app.log("🚀 Chrome automatizado iniciado correctamente (Puerto 9222).", "success")
+            app.log("💡 Inicia sesión en el portal INVIMA dentro de esa ventana de Chrome.", "warning")
+        return True
+    except Exception as e:
+        if app:
+            app.log(f"❌ Error al lanzar Chrome automáticamente: {e}", "error")
+        return False
+
+
+
+# --------------------------------------------------------------------------
+#  SISTEMA DE LICENCIAMIENTO SEGURO CON HWID & FIREBASE
 # --------------------------------------------------------------------------
 def obtener_hwid():
     """Genera un identificador único e inalterable del computador (HWID)."""
@@ -50,12 +115,51 @@ def obtener_hwid():
     return hashlib.sha256(node_str.encode()).hexdigest()[:16].upper()
 
 
+def _generar_clave_cifrado():
+    hwid = obtener_hwid()
+    key_material = f"{hwid}_{SECRET_SALT_LICENCIA}"
+    return hashlib.sha256(key_material.encode("utf-8")).digest()
+
+
+def _cifrar_datos_licencia(texto_str):
+    try:
+        key = _generar_clave_cifrado()
+        raw_bytes = texto_str.encode("utf-8")
+        encrypted = bytearray()
+        for i, b in enumerate(raw_bytes):
+            k = key[i % len(key)]
+            encrypted.append(b ^ k)
+        hmac_sig = hashlib.sha256(key + bytes(encrypted)).hexdigest()[:16]
+        payload = json.dumps({"sig": hmac_sig, "data": base64.b64encode(bytes(encrypted)).decode()})
+        return base64.b64encode(payload.encode()).decode()
+    except Exception:
+        return ""
+
+
+def _descifrar_datos_licencia(payload_b64):
+    try:
+        key = _generar_clave_cifrado()
+        raw_json = base64.b64decode(payload_b64.encode()).decode()
+        payload = json.loads(raw_json)
+        enc_bytes = base64.b64decode(payload["data"].encode())
+        expected_sig = hashlib.sha256(key + enc_bytes).hexdigest()[:16]
+        if payload.get("sig") != expected_sig:
+            return None  # Alterado o pertenece a otro equipo!
+        decrypted = bytearray()
+        for i, b in enumerate(enc_bytes):
+            k = key[i % len(key)]
+            decrypted.append(b ^ k)
+        return decrypted.decode("utf-8")
+    except Exception:
+        return None
+
+
 def obtener_ruta_licencia_local():
-    """Retorna la ruta del archivo local donde se guarda la licencia activada."""
+    """Retorna la ruta del archivo local cifrado donde se guarda la licencia activada."""
     base = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
     carpeta = os.path.join(base, "BotINVIMA_Data")
     os.makedirs(carpeta, exist_ok=True)
-    return os.path.join(carpeta, "license.json")
+    return os.path.join(carpeta, "license.dat")
 
 
 def guardar_licencia_local(clave, info_dict):
@@ -67,10 +171,19 @@ def guardar_licencia_local(clave, info_dict):
             "hwid": obtener_hwid(),
             "vencimiento": info_dict.get("vencimiento", "")
         }
+        contenido_cifrado = _cifrar_datos_licencia(json.dumps(datos))
         with open(ruta, "w", encoding="utf-8") as f:
-            json.dump(datos, f, indent=2)
+            f.write(contenido_cifrado)
+
+        # Eliminar archivo legacy en texto plano si existía
+        ruta_legacy = os.path.join(os.path.dirname(ruta), "license.json")
+        if os.path.exists(ruta_legacy):
+            try:
+                os.remove(ruta_legacy)
+            except Exception:
+                pass
     except Exception as e:
-        print(f"Error guardando licencia local: {e}")
+        print(f"Error guardando licencia local cifrada: {e}")
 
 
 def leer_licencia_local():
@@ -78,15 +191,32 @@ def leer_licencia_local():
         ruta = obtener_ruta_licencia_local()
         if os.path.exists(ruta):
             with open(ruta, "r", encoding="utf-8") as f:
-                return json.load(f)
+                cifrado = f.read().strip()
+            plano = _descifrar_datos_licencia(cifrado)
+            if plano:
+                return json.loads(plano)
     except Exception:
         pass
     return None
 
 
+def eliminar_licencia_local():
+    """Elimina los archivos de licencia guardados localmente."""
+    try:
+        ruta = obtener_ruta_licencia_local()
+        if os.path.exists(ruta):
+            os.remove(ruta)
+        ruta_legacy = os.path.join(os.path.dirname(ruta), "license.json")
+        if os.path.exists(ruta_legacy):
+            os.remove(ruta_legacy)
+    except Exception:
+        pass
+
+
 def validar_licencia_firebase(clave_licencia):
     """
-    Verifica la clave de licencia en Firebase Realtime Database.
+    Verifica la clave de licencia en Firebase Realtime Database de forma segura.
+    Soporta desvinculación remota y bloqueo por equipo (HWID).
     """
     clave = clave_licencia.strip().upper()
     if not clave:
@@ -100,11 +230,13 @@ def validar_licencia_firebase(clave_licencia):
         with urllib.request.urlopen(req, timeout=10) as resp:
             raw_data = resp.read().decode("utf-8")
             if not raw_data or raw_data == "null":
-                return False, f"La clave de licencia '{clave}' no existe."
+                eliminar_licencia_local()
+                return False, f"La clave de licencia '{clave}' no existe o fue eliminada."
 
             data = json.loads(raw_data)
 
         if not data.get("activa", False):
+            eliminar_licencia_local()
             return False, "Licencia inactiva o suspendida por el proveedor."
 
         vencimiento = data.get("vencimiento", "")
@@ -112,6 +244,7 @@ def validar_licencia_firebase(clave_licencia):
             try:
                 fecha_venc = datetime.strptime(vencimiento, "%Y-%m-%d")
                 if datetime.now() > fecha_venc:
+                    eliminar_licencia_local()
                     return False, f"Licencia vencida el {vencimiento}. Contacta al soporte para renovar."
             except Exception:
                 pass
@@ -122,22 +255,38 @@ def validar_licencia_firebase(clave_licencia):
 
         max_equipos = int(data.get("max_equipos", 1))
 
+        # 1. Si el HWID está registrado en Firebase
         if hwid in equipos:
+            val_equipo = equipos[hwid]
+            if val_equipo is False or str(val_equipo).lower() == "false":
+                eliminar_licencia_local()
+                return False, "Este equipo específico ha sido deshabilitado por el administrador."
+
+            equipos_activos = [k for k, v in equipos.items() if v is not False and str(v).lower() != "false"]
             info = {
                 "clave": clave,
                 "empresa": data.get("empresa", "Cliente"),
                 "vencimiento": vencimiento or "Permanente",
-                "equipos_usados": len(equipos),
+                "equipos_usados": len(equipos_activos),
                 "max_equipos": max_equipos
             }
             guardar_licencia_local(clave, info)
             return True, info
 
-        if len(equipos) >= max_equipos:
+        # 2. Si el HWID NO está en Firebase, pero el PC conservaba una licencia local previa:
+        #    indica que el administrador ELIMINÓ/DESVINCULÓ este equipo remotamente.
+        datos_locales = leer_licencia_local()
+        if datos_locales and datos_locales.get("clave") == clave:
+            eliminar_licencia_local()
+            return False, "Este equipo ha sido desvinculado de la licencia por el administrador."
+
+        # 3. Registro de equipo nuevo (Primera activación en este PC)
+        equipos_activos = [k for k, v in equipos.items() if v is not False and str(v).lower() != "false"]
+        if len(equipos_activos) >= max_equipos:
             return False, f"Límite de dispositivos alcanzado (Máximo {max_equipos} equipo(s) para esta licencia)."
 
         # Registrar este nuevo equipo (HWID) en Firebase
-        nombre_pc = os.getenv("COMPUTERNAME", f"Equipo_{len(equipos)+1}")
+        nombre_pc = os.getenv("COMPUTERNAME", f"Equipo_{len(equipos_activos)+1}")
         url_put = f"{FIREBASE_DB_URL}/licencias/{clave}/equipos/{hwid}.json"
         body = json.dumps(nombre_pc).encode("utf-8")
         req_put = urllib.request.Request(url_put, data=body, headers={"Content-Type": "application/json"}, method="PUT")
@@ -148,7 +297,7 @@ def validar_licencia_firebase(clave_licencia):
             "clave": clave,
             "empresa": data.get("empresa", "Cliente"),
             "vencimiento": vencimiento or "Permanente",
-            "equipos_usados": len(equipos) + 1,
+            "equipos_usados": len(equipos_activos) + 1,
             "max_equipos": max_equipos
         }
         guardar_licencia_local(clave, info)
@@ -156,6 +305,7 @@ def validar_licencia_firebase(clave_licencia):
 
     except Exception as e:
         return False, f"Error al verificar la licencia en línea: {e}"
+
 
 
 # --------------------------------------------------------------------------
@@ -960,16 +1110,28 @@ def ejecutar(ruta_excel, nombre_proceso, app):
 
     try:
         with sync_playwright() as p:
+            if not esta_puerto_abierto(PUERTO_CHROME):
+                app.log("🌐 Chrome automatizado no detectado en puerto 9222. Iniciando automáticamente...", "warning")
+                abrir_chrome_automatizado(app)
+                time.sleep(3)
+
             app.log("📡 Conectando con Google Chrome (puerto 9222)...", "info")
             try:
                 browser = p.chromium.connect_over_cdp(f"http://localhost:{PUERTO_CHROME}")
             except Exception:
-                app.log("", "info")
-                app.log("❌ ERROR CRÍTICO: No se pudo conectar a Chrome.", "error")
-                app.log("💡 Verifique que abrió Chrome usando el acceso directo 'Chrome para el bot'", "warning")
-                app.log("💡 Asegúrese de tener abierta la pestaña correspondiente en el portal INVIMA.", "warning")
-                app.finalizar_proceso(exito=False)
-                return
+                # Segundo intento tras relanzar
+                if abrir_chrome_automatizado(app):
+                    time.sleep(2)
+                    try:
+                        browser = p.chromium.connect_over_cdp(f"http://localhost:{PUERTO_CHROME}")
+                    except Exception as e2:
+                        app.log(f"❌ ERROR CRÍTICO: No se pudo conectar a Chrome tras relanzar: {e2}", "error")
+                        app.finalizar_proceso(exito=False)
+                        return
+                else:
+                    app.log("❌ ERROR CRÍTICO: No se pudo conectar a Chrome (Puerto 9222).", "error")
+                    app.finalizar_proceso(exito=False)
+                    return
 
             contexto = browser.contexts[0]
             page = contexto.pages[0] if contexto.pages else contexto.new_page()
@@ -1179,6 +1341,19 @@ class App(ctk.CTk):
         top.attributes("-topmost", True)
         top.grab_set()
 
+        def _on_cerrar_sin_licencia():
+            if not self.licencia_info:
+                messagebox.showwarning(
+                    "Licencia Requerida",
+                    "Se requiere una licencia activa para utilizar el Automatizador INVIMA.\nLa aplicación se cerrará."
+                )
+                self.destroy()
+                sys.exit(0)
+            else:
+                top.destroy()
+
+        top.protocol("WM_DELETE_WINDOW", _on_cerrar_sin_licencia)
+
         lbl_title = ctk.CTkLabel(
             top,
             text="🔐 Activación de Licencia de Software",
@@ -1327,6 +1502,18 @@ class App(ctk.CTk):
         )
         lbl_subtitle.grid(row=1, column=0, padx=16, pady=(0, 12), sticky="w")
 
+        btn_chrome = ctk.CTkButton(
+            frame_header,
+            text="🌐 Abrir Chrome Bot",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            fg_color="#0EA5E9",
+            hover_color="#0284C7",
+            height=32,
+            width=140,
+            command=lambda: abrir_chrome_automatizado(self)
+        )
+        btn_chrome.grid(row=0, column=1, padx=(0, 10), pady=12, sticky="e")
+
         self.badge_estado = ctk.CTkLabel(
             frame_header,
             text="● EN ESPERA",
@@ -1337,7 +1524,7 @@ class App(ctk.CTk):
             padx=12,
             pady=4
         )
-        self.badge_estado.grid(row=0, column=1, rowspan=2, padx=16, pady=12, sticky="e")
+        self.badge_estado.grid(row=0, column=2, rowspan=2, padx=16, pady=12, sticky="e")
 
         # 2. SELECTOR DE PROCESO DE AUTOMATIZACIÓN
         frame_proceso = ctk.CTkFrame(self, fg_color="#0F172A", corner_radius=12)
@@ -1562,6 +1749,22 @@ class App(ctk.CTk):
         if not self.en_ejecucion:
             if not self.ruta_excel:
                 self.log("⚠️ Por favor selecciona primero un archivo Excel válido.", "warning")
+                return
+
+            if not self.licencia_info or "clave" not in self.licencia_info:
+                self.log("❌ ERROR CRÍTICO DE SEGURIDAD: No hay una licencia activa validada.", "error")
+                messagebox.showerror("Licencia Requerida", "No puedes iniciar la automatización sin una licencia activa.")
+                self.mostrar_modal_activacion_licencia("Debes activar una licencia para continuar.")
+                return
+
+            # Re-validación en tiempo real antes de iniciar
+            clave = self.licencia_info["clave"]
+            valido, res = validar_licencia_firebase(clave)
+            if not valido:
+                self.licencia_info = None
+                self.log(f"❌ LICENCIA RECHAZADA POR EL SERVIDOR: {res}", "error")
+                messagebox.showerror("Licencia Desactivada", f"La licencia ha sido inhabilitada o ha caducado:\n{res}")
+                self.mostrar_modal_activacion_licencia(res)
                 return
 
             nombre_proceso = self.opt_proceso.get()
