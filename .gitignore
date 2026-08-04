@@ -3,7 +3,6 @@ build/
 dist/
 *.exe
 *.zip
-*.spec
 __pycache__/
 .vscode/
 .idea/
