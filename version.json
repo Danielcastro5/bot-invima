@@ -1,6 +1,6 @@
 {
   "version": "v1.1.0",
   "novedades": "• Sistema de licencias seguras con Firebase Realtime Database.\n• Desvinculación y bloqueo remoto de equipos por HWID.\n• Auto-apertura de Google Chrome en puerto 9222.\n• Mejoras de estabilidad y seguridad anti-copia.",
-  "exe_url": "https://github.com/Danielcastro5/bot-invima/releases/download/v1.1.0/Automatizador_INVIMA.exe",
+  "exe_url": "https://github.com/Danielcastro5/bot-invima/releases/download/v1.1.0/Automatizador.INVIMA.exe",
   "config_url": "https://raw.githubusercontent.com/Danielcastro5/bot-invima/main/config.py"
 }
