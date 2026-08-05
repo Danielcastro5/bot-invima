@@ -17,7 +17,7 @@ VERIFICAR_VALORES = True
 PROCESOS = {
     "Información General (Presentaciones)": {
         "NOMBRE_HOJA": "Presentaciones comerciales",
-        "BOTON_ABRIR_MODAL": r"button:has-text('Agregar presentación comercial'), button.custom-full-width, #single-spa-application\:\@cx\/workspace-cosmetics > div > main > div.erHFPg5exWzGeIbPIRYe > div.xhUocBpKVBF6DfRqoST5 > div.vQ8bD_kd41eOJ1OyVQYW > div.ant-row.css-cdzvx5 > div > div > div > div > form > div:nth-child(30) > div button, #single-spa-application\:\@cx\/workspace-cosmetics > div > main > div.erHFPg5exWzGeIbPIRYe > div.xhUocBpKVBF6DfRqoST5 > div.vQ8bD_kd41eOJ1OyVQYW > div.ant-row.css-cdzvx5 > div > div > div > div > form > div:nth-child(30) > div > button > span",
+        "BOTON_ABRIR_MODAL": r"button:has-text('Agregar presentación comercial'), #single-spa-application\:\@cx\/workspace-cosmetics > div > main > div.erHFPg5exWzGeIbPIRYe > div.xhUocBpKVBF6DfRqoST5 > div.vQ8bD_kd41eOJ1OyVQYW > div.ant-row.css-cdzvx5 > div > div > div > div > form > div:nth-child(30) > div button, #single-spa-application\:\@cx\/workspace-cosmetics > div > main > div.erHFPg5exWzGeIbPIRYe > div.xhUocBpKVBF6DfRqoST5 > div.vQ8bD_kd41eOJ1OyVQYW > div.ant-row.css-cdzvx5 > div > div > div > div > form > div:nth-child(30) > div > button > span",
         "SELECTOR_MODAL": r".ant-modal-content, .ant-modal",
         "BOTON_ENVIAR": r".ant-modal-footer button.ant-btn-primary, button:has-text('Guardar')",
         "CAMPOS": [
