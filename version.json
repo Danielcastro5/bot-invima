@@ -1,6 +1,6 @@
 {
-  "version": "v1.1.1",
-  "exe_url": "https://github.com/Danielcastro5/bot-invima/releases/download/v1.1.1/Automatizador_INVIMA.exe",
-  "config_url": "https://raw.githubusercontent.com/Danielcastro5/bot-invima-privado/main/config.py",
-  "novedades": "\u2022 Incorporaci\u00f3n del Manual de Usuario y Cl\u00e1usula Legal accesible desde el bot\u00f3n en la barra superior.\n\u2022 Mejoras de estabilidad y reintentos autom\u00e1ticos."
+  "version": "v1.1.2",
+  "exe_url": "https://github.com/Danielcastro5/bot-invima/releases/download/v1.1.2/Automatizador_INVIMA.exe",
+  "config_url": "",
+  "novedades": "\u2022 Correcci\u00f3n de precisi\u00f3n en el selector del bot\u00f3n 'Agregar presentaci\u00f3n comercial' para evitar aperturas accidentales de otros formularios.\n\u2022 Inclusi\u00f3n nativa de librer\u00edas C-Runtime para m\u00e1xima estabilidad en Windows."
 }
