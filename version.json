@@ -1,6 +1,6 @@
 {
-  "version": "v1.1.3",
-  "exe_url": "https://github.com/Danielcastro5/bot-invima/releases/download/v1.1.3/Automatizador_INVIMA.exe",
+  "version": "v1.1.4",
+  "exe_url": "https://github.com/Danielcastro5/bot-invima/releases/download/v1.1.4/Automatizador_INVIMA.exe",
   "config_url": "",
-  "novedades": "\u2022 Correcci\u00f3n cr\u00edtica en la selecci\u00f3n de opciones de desplegables (elimina el sobreescrito de la tecla Enter).\n\u2022 Validaci\u00f3n estricta 1:1 de los valores seleccionados para Cart\u00f3n y materiales en Presentaciones Comerciales."
+  "novedades": "\u2022 Parches de seguridad y correcciones menores de estabilidad."
 }
