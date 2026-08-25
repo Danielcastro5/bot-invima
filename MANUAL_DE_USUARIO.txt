@@ -1,6 +1,6 @@
 ========================================================================
              MANUAL DE USUARIO Y GUÍA DE OPERACIÓN
-                   AUTOMATIZADOR INVIMA v1.1.3
+                   AUTOMATIZADOR INVIMA v1.1.4
 ========================================================================
 
 1. REQUISITOS PREVIOS DEL SISTEMA

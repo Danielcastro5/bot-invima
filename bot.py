@@ -16,6 +16,7 @@ import subprocess
 import hashlib
 import uuid
 import base64
+import winreg
 from datetime import datetime
 import socket
 import customtkinter as ctk
@@ -25,7 +26,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 PUERTO_CHROME = 9222   # Puerto de depuración de Chrome
 
-VERSION_ACTUAL = "v1.1.3"
+VERSION_ACTUAL = "v1.1.4"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/Danielcastro5/bot-invima/main/version.json"
 FIREBASE_DB_URL = "https://bot-invima-licencias-default-rtdb.firebaseio.com"
 SECRET_SALT_LICENCIA = "BOT_INVIMA_SECURE_AUTH_SALT_2026_V1"
@@ -71,11 +72,11 @@ def abrir_chrome_automatizado(app=None):
 
     if not exe_chrome:
         if app:
-            app.log("❌ No se encontró Google Chrome en las rutas estándar del sistema.", "error")
+            app.log("❌ No se encontró Google Chrome en las rutas predeterminadas.", "error")
         return False
 
-    user_data_dir = r"C:\chrome-bot"
-    os.makedirs(user_data_dir, exist_ok=True)
+    base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+    user_data_dir = os.path.join(base_dir, "chrome_profile_bot")
 
     cmd = [
         exe_chrome,
@@ -98,21 +99,52 @@ def abrir_chrome_automatizado(app=None):
 
 
 # --------------------------------------------------------------------------
-#  SISTEMA DE LICENCIAMIENTO SEGURO CON HWID & FIREBASE
+#  SISTEMA DE LICENCIAMIENTO SEGURO CON HWID INMUTABLE & FIREBASE
 # --------------------------------------------------------------------------
 def obtener_hwid():
-    """Genera un identificador único e inalterable del computador (HWID)."""
-    try:
-        cmd = "wmic csproduct get uuid"
-        output = subprocess.check_output(cmd, shell=True).decode().split('\n')
-        if len(output) > 1 and output[1].strip():
-            uuid_str = output[1].strip()
-            return hashlib.sha256(uuid_str.encode()).hexdigest()[:16].upper()
-    except Exception:
-        pass
+    """
+    Genera un identificador 100% permanente e inalterable del computador (HWID).
+    Utiliza el MachineGuid del registro de Windows y el UUID del sistema (Motherboard/BIOS).
+    No depende de la red, Wi-Fi, Ethernet, VPN ni conexiones de internet.
+    """
+    identificadores = []
 
-    node_str = str(uuid.getnode()) + os.getenv("COMPUTERNAME", "PC")
-    return hashlib.sha256(node_str.encode()).hexdigest()[:16].upper()
+    # 1. MachineGuid del Registro de Windows (Inmutable por instalación)
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography", 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as key:
+            machine_guid, _ = winreg.QueryValueEx(key, "MachineGuid")
+            if machine_guid and str(machine_guid).strip():
+                identificadores.append(str(machine_guid).strip())
+    except Exception:
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography", 0, winreg.KEY_READ) as key:
+                machine_guid, _ = winreg.QueryValueEx(key, "MachineGuid")
+                if machine_guid and str(machine_guid).strip():
+                    identificadores.append(str(machine_guid).strip())
+        except Exception:
+            pass
+
+    # 2. UUID del Hardware / Placa Base (PowerShell / CIM / WMIC)
+    try:
+        cmd = 'powershell -NoProfile -Command "(Get-CimInstance Win32_ComputerSystemProduct).UUID"'
+        out = subprocess.check_output(cmd, shell=True, timeout=3).decode().strip()
+        if out and len(out) > 8 and "error" not in out.lower():
+            identificadores.append(out)
+    except Exception:
+        try:
+            cmd = "wmic csproduct get uuid"
+            out = subprocess.check_output(cmd, shell=True, timeout=3).decode().split('\n')
+            if len(out) > 1 and out[1].strip():
+                identificadores.append(out[1].strip())
+        except Exception:
+            pass
+
+    # 3. Nombre del Computador
+    nombre_pc = os.getenv("COMPUTERNAME", "PC_DEFAULT")
+    identificadores.append(nombre_pc)
+
+    cadena_unica = "_".join(identificadores)
+    return hashlib.sha256(cadena_unica.encode("utf-8")).hexdigest()[:16].upper()
 
 
 def _generar_clave_cifrado():
@@ -208,7 +240,10 @@ def eliminar_licencia_local():
             os.remove(ruta)
         ruta_legacy = os.path.join(os.path.dirname(ruta), "license.json")
         if os.path.exists(ruta_legacy):
-            os.remove(ruta_legacy)
+            try:
+                os.remove(ruta_legacy)
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -216,13 +251,14 @@ def eliminar_licencia_local():
 def validar_licencia_firebase(clave_licencia):
     """
     Verifica la clave de licencia en Firebase Realtime Database de forma segura.
-    Soporta desvinculación remota y bloqueo por equipo (HWID).
+    Soporta desvinculación remota, anti-duplicación automática y bloqueo por HWID permanente.
     """
     clave = clave_licencia.strip().upper()
     if not clave:
         return False, "Por favor ingresa una clave de licencia."
 
     hwid = obtener_hwid()
+    nombre_pc_actual = os.getenv("COMPUTERNAME", "PC_ACTUAL").strip().upper()
     url = f"{FIREBASE_DB_URL}/licencias/{clave}.json"
 
     try:
@@ -253,14 +289,22 @@ def validar_licencia_firebase(clave_licencia):
         if not isinstance(equipos, dict):
             equipos = {}
 
-        max_equipos = int(data.get("max_equipos", 1))
+        max_equipos = int(data.get("max_equipos", 5))
 
-        # 1. Si el HWID está registrado en Firebase
+        # 1. Si el HWID inmutable ya está registrado en Firebase
         if hwid in equipos:
             val_equipo = equipos[hwid]
             if val_equipo is False or str(val_equipo).lower() == "false":
                 eliminar_licencia_local()
                 return False, "Este equipo específico ha sido deshabilitado por el administrador."
+
+            # Actualizar nombre si fuera necesario
+            if val_equipo != nombre_pc_actual and val_equipo is not True:
+                try:
+                    url_put = f"{FIREBASE_DB_URL}/licencias/{clave}/equipos/{hwid}.json"
+                    req_put = urllib.request.Request(url_put, data=json.dumps(nombre_pc_actual).encode("utf-8"), headers={"Content-Type": "application/json"}, method="PUT")
+                    with urllib.request.urlopen(req_put, timeout=5): pass
+                except Exception: pass
 
             equipos_activos = [k for k, v in equipos.items() if v is not False and str(v).lower() != "false"]
             info = {
@@ -273,22 +317,59 @@ def validar_licencia_firebase(clave_licencia):
             guardar_licencia_local(clave, info)
             return True, info
 
-        # 2. Si el HWID NO está en Firebase, pero el PC conservaba una licencia local previa:
-        #    indica que el administrador ELIMINÓ/DESVINCULÓ este equipo remotamente.
+        # 2. Anti-duplicación inteligente:
+        #    Si este mismo nombre de computador ya existía bajo una clave vieja generada por el adaptador anterior,
+        #    migramos esa clave al HWID inmutable y eliminamos el duplicado anterior sin consumir un nuevo cupo.
+        hwid_antiguo_encontrado = None
+        for k_old, v_name in equipos.items():
+            if str(v_name).strip().upper() == nombre_pc_actual and v_name is not False and str(v_name).lower() != "false":
+                hwid_antiguo_encontrado = k_old
+                break
+
+        if hwid_antiguo_encontrado:
+            # Eliminar el HWID antiguo de Firebase
+            try:
+                url_del = f"{FIREBASE_DB_URL}/licencias/{clave}/equipos/{hwid_antiguo_encontrado}.json"
+                req_del = urllib.request.Request(url_del, headers={"User-Agent": "Mozilla/5.0"}, method="DELETE")
+                with urllib.request.urlopen(req_del, timeout=5): pass
+            except Exception: pass
+
+            # Registrar el nuevo HWID inmutable
+            try:
+                url_put = f"{FIREBASE_DB_URL}/licencias/{clave}/equipos/{hwid}.json"
+                req_put = urllib.request.Request(url_put, data=json.dumps(nombre_pc_actual).encode("utf-8"), headers={"Content-Type": "application/json"}, method="PUT")
+                with urllib.request.urlopen(req_put, timeout=5): pass
+            except Exception: pass
+
+            equipos[hwid] = nombre_pc_actual
+            if hwid_antiguo_encontrado in equipos:
+                del equipos[hwid_antiguo_encontrado]
+
+            equipos_activos = [k for k, v in equipos.items() if v is not False and str(v).lower() != "false"]
+            info = {
+                "clave": clave,
+                "empresa": data.get("empresa", "Cliente"),
+                "vencimiento": vencimiento or "Permanente",
+                "equipos_usados": len(equipos_activos),
+                "max_equipos": max_equipos
+            }
+            guardar_licencia_local(clave, info)
+            return True, info
+
+        # 3. Si el HWID NO está en Firebase, pero el PC conservaba una licencia local previa:
         datos_locales = leer_licencia_local()
         if datos_locales and datos_locales.get("clave") == clave:
             eliminar_licencia_local()
             return False, "Este equipo ha sido desvinculado de la licencia por el administrador."
 
-        # 3. Registro de equipo nuevo (Primera activación en este PC)
+        # 4. Registro de un computador nuevo en la licencia
         equipos_activos = [k for k, v in equipos.items() if v is not False and str(v).lower() != "false"]
         if len(equipos_activos) >= max_equipos:
             return False, f"Límite de dispositivos alcanzado (Máximo {max_equipos} equipo(s) para esta licencia)."
 
         # Registrar este nuevo equipo (HWID) en Firebase
-        nombre_pc = os.getenv("COMPUTERNAME", f"Equipo_{len(equipos_activos)+1}")
         url_put = f"{FIREBASE_DB_URL}/licencias/{clave}/equipos/{hwid}.json"
-        body = json.dumps(nombre_pc).encode("utf-8")
+        body = json.dumps(nombre_pc_actual).encode("utf-8")
         req_put = urllib.request.Request(url_put, data=body, headers={"Content-Type": "application/json"}, method="PUT")
         with urllib.request.urlopen(req_put, timeout=10) as resp_put:
             pass
