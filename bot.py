@@ -1,5 +1,5 @@
 # ==========================================================================
-#  AUTOMATIZADOR INVIMA - MASTERDENT
+#  AUTOMATIZADOR INVIMA
 #  Soporte Multi-Proceso (Información General, Composición, etc.),
 #  Búsqueda Exacta 1:1, 3 Reintentos por Fila, Continuidad de Lote y Reporte
 # ==========================================================================
@@ -25,7 +25,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 PUERTO_CHROME = 9222   # Puerto de depuración de Chrome
 
-VERSION_ACTUAL = "v1.1.2"
+VERSION_ACTUAL = "v1.1.3"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/Danielcastro5/bot-invima/main/version.json"
 FIREBASE_DB_URL = "https://bot-invima-licencias-default-rtdb.firebaseio.com"
 SECRET_SALT_LICENCIA = "BOT_INVIMA_SECURE_AUTH_SALT_2026_V1"
@@ -504,15 +504,17 @@ def hacer_clic_opcion(opcion_locator):
     except Exception:
         pass
     try:
-        opcion_locator.dispatch_event("mousedown")
-        time.sleep(0.05)
+        hijo_txt = opcion_locator.locator(".ant-select-item-option-content")
+        if hijo_txt.count() > 0 and hijo_txt.first.is_visible():
+            hijo_txt.first.click(force=True, timeout=1500)
+            return
     except Exception:
         pass
     try:
-        opcion_locator.click(force=True, timeout=2000)
+        opcion_locator.click(force=True, timeout=1500)
     except Exception:
         try:
-            opcion_locator.evaluate("el => { el.dispatchEvent(new MouseEvent('mousedown', {bubbles: true})); el.click(); }")
+            opcion_locator.evaluate("el => el.click()")
         except Exception:
             pass
 
@@ -551,19 +553,17 @@ def _limpiar_e_ingresar_texto(page, target, valor):
 
     time.sleep(0.05)
 
-    # Limpiar solo el elemento objetivo con target.press
     try:
-        target.press("Control+a")
-        target.press("Backspace")
+        target.fill("")
     except Exception:
         try:
-            target.fill("")
+            target.press("Control+a")
+            target.press("Backspace")
         except Exception:
             pass
 
     time.sleep(0.05)
 
-    # Tipear directamente en la casilla objetivo
     try:
         target.press_sequentially(str(valor), delay=40)
     except Exception:
@@ -577,9 +577,11 @@ def _limpiar_e_ingresar_texto(page, target, valor):
 
 def _seleccionar_opcion_antdesign(page, target, valor, app):
     """
-    Despliega y selecciona la opción exacta o aproximada en Ant Design Select.
+    Despliega y selecciona la opción exacta en Ant Design Select.
+    Prioriza opciones de texto real sobre códigos internos.
     """
     valor_norm = normalizar_texto(valor)
+    valor_str = str(valor).strip()
 
     # 1. Esperar menú desplegable
     try:
@@ -588,7 +590,7 @@ def _seleccionar_opcion_antdesign(page, target, valor, app):
         pass
 
     dropdown = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)").last
-    opciones = dropdown.locator(".ant-select-item-option, div[role='option'], .ant-select-item")
+    opciones = dropdown.locator(".ant-select-item-option:not(.ant-select-item-option-disabled)")
     total = opciones.count()
 
     if total == 0:
@@ -597,75 +599,62 @@ def _seleccionar_opcion_antdesign(page, target, valor, app):
 
     # Log de opciones encontradas para transparencia total
     lista_textos = []
-    for k in range(min(total, 10)):
+    for k in range(total):
         try:
             t = opciones.nth(k).inner_text().strip()
-            if t:
+            if t and t not in lista_textos:
                 lista_textos.append(t)
         except Exception:
             pass
 
     if lista_textos:
-        app.log(f"      📋 Opciones desplegadas ({total}): [{', '.join(lista_textos[:5])}]", "detail")
+        app.log(f"      📋 Opciones en menú ({total}): [{', '.join(lista_textos[:6])}]", "detail")
     else:
         app.log(f"      ℹ️ No se desplegaron opciones en menú para '{valor}'", "detail")
 
     # Si hay opciones desplegadas
     if total > 0:
-        # A) Coincidencia EXACTA
+        # A) Coincidencia EXACTA DIRECTA (Case-sensitive: 'Envase' == 'Envase', evitando 'envase' y 'envas1')
         for k in range(total):
             try:
                 opc = opciones.nth(k)
-                txt = opc.inner_text()
-                if normalizar_texto(txt) == valor_norm:
-                    app.log(f"      🎯 Encontrada coincidencia EXACTA: '{txt.strip()}'", "detail")
+                txt = opc.inner_text().strip()
+                if txt == valor_str:
+                    app.log(f"      🎯 Clic en coincidencia EXACTA (Directa): '{txt}'", "detail")
                     hacer_clic_opcion(opc)
-                    time.sleep(0.15)
-                    try:
-                        target.press("Enter")
-                    except Exception:
-                        pass
-                    time.sleep(0.25)
+                    time.sleep(0.3)
                     return True
             except Exception:
                 pass
 
-        # B) Coincidencia PARCIAL (empieza o contiene)
+        # B) Coincidencia EXACTA NORMALIZADA (ej: 'Cartón' vs 'carton', descartando sufijos como carto1)
         for k in range(total):
             try:
                 opc = opciones.nth(k)
-                txt = opc.inner_text()
+                txt = opc.inner_text().strip()
+                if normalizar_texto(txt) == valor_norm and not (len(txt) > 3 and txt[-1].isdigit()):
+                    app.log(f"      🎯 Clic en coincidencia EXACTA (Normalizada): '{txt}'", "detail")
+                    hacer_clic_opcion(opc)
+                    time.sleep(0.3)
+                    return True
+            except Exception:
+                pass
+
+        # C) Coincidencia PARCIAL (solo opciones reales sin sufijos de código como envas1)
+        for k in range(total):
+            try:
+                opc = opciones.nth(k)
+                txt = opc.inner_text().strip()
                 txt_n = normalizar_texto(txt)
-                if txt_n.startswith(valor_norm) or valor_norm in txt_n or txt_n in valor_norm:
-                    app.log(f"      🎯 Encontrada coincidencia PARCIAL: '{txt.strip()}'", "detail")
+                if (txt_n.startswith(valor_norm) or valor_norm in txt_n) and not (len(txt) > 3 and txt[-1].isdigit()):
+                    app.log(f"      🎯 Clic en coincidencia PARCIAL: '{txt}'", "detail")
                     hacer_clic_opcion(opc)
-                    time.sleep(0.15)
-                    try:
-                        target.press("Enter")
-                    except Exception:
-                        pass
-                    time.sleep(0.25)
+                    time.sleep(0.3)
                     return True
             except Exception:
                 pass
 
-        # C) Hacer clic en la primera opción si no hay matcheo directo
-        try:
-            opc_primera = opciones.first
-            txt_prim = opc_primera.inner_text()
-            app.log(f"      🎯 Seleccionando primera opción disponible: '{txt_prim.strip()}'", "detail")
-            hacer_clic_opcion(opc_primera)
-            time.sleep(0.15)
-            try:
-                target.press("Enter")
-            except Exception:
-                pass
-            time.sleep(0.25)
-            return True
-        except Exception:
-            pass
-
-    # Si no se pudo hacer clic en el menú desplegable, intentar ArrowDown + Enter en la casilla
+    # D) Fallback con teclado ArrowDown + Enter
     try:
         target.press("ArrowDown")
         time.sleep(0.1)
@@ -680,33 +669,35 @@ def _seleccionar_opcion_antdesign(page, target, valor, app):
 
 def _verificar_campo_seleccionado(page, target, campo, valor, app):
     """
-    VERIFICACIÓN UNIVERSAL Y SEGURA DE CAMPOS EN INFORMACIÓN GENERAL:
-    1. Si hay .ant-select-selection-item con texto -> Confirmado (Select).
-    2. Si el input conserva el valor (input_value) -> Confirmado (AutoComplete / Texto).
+    VERIFICACIÓN ESTRICTA DEL CAMPO:
+    Para autocompletar, exige que .ant-select-selection-item esté visible y activo.
     """
+    valor_norm = normalizar_texto(valor)
     col_nombre = campo.get("columna", "")
+    tipo_campo = campo.get("tipo", "autocompletar")
 
-    # 1. Buscar etiqueta .ant-select-selection-item (para Selects)
+    # 1. Buscar etiqueta .ant-select-selection-item dentro del .ant-select MAS CERCANO a este input
     try:
-        padre_item = target.locator("xpath=ancestor::div[contains(@class,'ant-form-item') or contains(@class,'ant-select')]").first
-        if padre_item.count() > 0:
-            selection_item = padre_item.locator(".ant-select-selection-item")
-            if selection_item.count() > 0 and selection_item.first.is_visible():
-                texto_item = selection_item.first.inner_text().strip()
+        contenedor_select = target.locator("xpath=ancestor::div[contains(@class,'ant-select')][1]")
+        if contenedor_select.count() > 0:
+            selection_item = contenedor_select.locator(".ant-select-selection-item").first
+            if selection_item.count() > 0 and selection_item.is_visible():
+                texto_item = selection_item.inner_text().strip()
                 if texto_item:
                     app.log(f"      ✅ Selección confirmada en portal (.ant-select-selection-item): '{texto_item}'", "detail")
                     return True
     except Exception:
         pass
 
-    # 2. Buscar valor en el input (para AutoComplete o casillas de texto)
-    try:
-        val = target.input_value()
-        if val and str(val).strip():
-            app.log(f"      ✅ Valor verificado en casilla '{col_nombre}': '{val.strip()}'", "detail")
-            return True
-    except Exception:
-        pass
+    # 2. Si es campo de tipo 'texto', verificar target.input_value()
+    if tipo_campo == "texto":
+        try:
+            val = target.input_value()
+            if val and str(val).strip():
+                app.log(f"      ✅ Valor verificado en casilla '{col_nombre}': '{val.strip()}'", "detail")
+                return True
+        except Exception:
+            pass
 
     return False
 
@@ -1215,12 +1206,27 @@ def ejecutar(ruta_excel, nombre_proceso, app):
                         try:
                             page.wait_for_selector(selector_modal, state="hidden", timeout=4000)
                         except Exception:
+                            errores_form = []
+                            try:
+                                loc_errs = page.locator(".ant-form-item-explain-error, .ant-form-item-explain, .ant-form-item-has-error")
+                                for e_idx in range(loc_errs.count()):
+                                    txt_err = loc_errs.nth(e_idx).inner_text().strip()
+                                    if txt_err and txt_err not in errores_form:
+                                        errores_form.append(txt_err)
+                            except Exception:
+                                pass
+
                             try:
                                 page.keyboard.press("Escape")
                                 time.sleep(0.5)
                             except Exception:
                                 pass
-                            raise ValueError("El formulario modal no se cerró tras hacer clic en Guardar.")
+
+                            if errores_form:
+                                detalle_err = "Error en el portal de INVIMA: " + " | ".join(errores_form)
+                            else:
+                                detalle_err = "El formulario modal no se cerró tras hacer clic en Guardar (campos requeridos incompletos o inválidos)."
+                            raise ValueError(detalle_err)
 
                         exito_fila = True
                         break  # Exit retry loop on success
@@ -1300,7 +1306,7 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("Automatizador INVIMA - MasterDent")
+        self.title("Automatizador INVIMA")
         self.geometry("780x720")
         self.minsize(720, 640)
 
