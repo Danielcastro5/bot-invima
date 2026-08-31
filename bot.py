@@ -289,7 +289,7 @@ def validar_licencia_firebase(clave_licencia):
         if not isinstance(equipos, dict):
             equipos = {}
 
-        max_equipos = int(data.get("max_equipos", 5))
+        max_equipos = int(data.get("max_equipos", 1))
 
         # 1. Si el HWID inmutable ya está registrado en Firebase
         if hwid in equipos:
@@ -1466,7 +1466,7 @@ class App(ctk.CTk):
 
         entry_clave = ctk.CTkEntry(
             top,
-            placeholder_text="Ej: DEMO-2026-INVIMA",
+            placeholder_text="XXXX-XXXX-XXXX-XXXX",
             width=380,
             height=42,
             font=ctk.CTkFont(size=14, weight="bold")

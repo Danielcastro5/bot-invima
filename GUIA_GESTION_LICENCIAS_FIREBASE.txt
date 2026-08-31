@@ -1,49 +1,49 @@
 ========================================================================
-         SISTEMA DE GESTIÓN DE LICENCIAS Y ANTI-PIRATERÍA (FIREBASE)
+     SISTEMA DE GESTIÓN DE 20 LICENCIAS INDIVIDUALES (FIREBASE)
 ========================================================================
 
-Tu panel de control en tiempo real:
+Panel de control en tiempo real:
 https://console.firebase.google.com/u/0/project/bot-invima-licencias/database/bot-invima-licencias-default-rtdb/data
 
 ------------------------------------------------------------------------
-¿CÓMO CREAR UNA LICENCIA NUEVA PARA UN CLIENTE?
+1. ¿CÓMO FUNCIONA EL MODELO DE 20 LICENCIAS (1 PUESTO POR LICENCIA)?
 ------------------------------------------------------------------------
-
-1. Entra a tu enlace de Firebase Realtime Database.
-2. Pasa el cursor sobre la palabra "licencias" y haz clic en el botón (+).
-3. Escribe el Nombre de la Clave que le vas a dar a tu cliente (ejemplo: CLIENTE-FARMA-2026).
-4. Dentro de esa clave, agrega estos campos con el botón (+):
-
-   • "activa": true                    (Tipo: boolean -> valor: true)
-   • "empresa": "Nombre del Cliente"   (Tipo: string)
-   • "max_equipos": 3                  (Tipo: number -> cantidad de PCs permitidos)
-   • "vencimiento": "2026-12-31"       (Tipo: string -> Formato AAAA-MM-DD)
+• En lugar de tener 4 licencias compartidas (de 5 computadores cada una),
+  ahora cada uno de los 20 puestos de trabajo tiene su propia clave exclusiva.
+• Cada clave tiene "max_equipos": 1.
+• Cuando un equipo ingresa una clave, su HWID inmutable se vincula a esa clave.
+• Si otra persona intenta usar esa misma clave en otro computador, el sistema
+  le negará el acceso: "Límite de dispositivos alcanzado (Máximo 1 equipo para esta licencia)".
 
 ------------------------------------------------------------------------
-¿CÓMO GESTIONAR O REVOCAR EQUIPOS DE UN CLIENTE?
+2. ¿CÓMO CARGAR LAS 20 LICENCIAS A FIREBASE EN 10 SEGUNDOS?
 ------------------------------------------------------------------------
-1. OPCIÓN A: DESVINCULAR UN EQUIPO (Para cambiar de PC o revocar acceso)
-   • Entra a la clave del cliente -> abre el nodo "equipos".
-   • Elimina el ID (HWID) del equipo que deseas retirar haciendo clic en la (X).
-   • Cuando ese computador vuelva a abrir la aplicación o intente ejecutarla,
-     el bot detectará la desvinculación, borrará la licencia local del PC
-     y mostrará: "Este equipo ha sido desvinculado de la licencia por el administrador."
-
-2. OPCIÓN B: BLOQUEAR UN EQUIPO ESPECÍFICO
-   • Si no quieres borrar el HWID sino bloquear permanentemente ese PC,
-     cambia su valor en "equipos" a: false (Tipo: boolean).
-   • Ese PC quedará bloqueado de inmediato aunque intente reingresar la clave.
+Método Rápido por Importación JSON:
+1. Abre tu consola de Firebase en la sección "Realtime Database":
+   https://console.firebase.google.com/u/0/project/bot-invima-licencias/database/bot-invima-licencias-default-rtdb/data
+2. En la parte superior derecha de la base de datos (en la raíz), haz clic en los 3 puntos verticales (⋮).
+3. Selecciona "Importar JSON" (Import JSON).
+4. Selecciona el archivo "licencias_importar_en_RAIZ.json".
+5. ¡Listo! Las 20 licencias quedarán creadas automáticamente dentro del nodo "licencias".
 
 ------------------------------------------------------------------------
-¿CÓMO DESACTIVAR A UN CLIENTE SI NO PAGA?
+3. ¿CÓMO GENERAR NUEVAS LICENCIAS O CON OTRO NOMBRE / FECHA?
 ------------------------------------------------------------------------
-1. Busca la clave del cliente en Firebase.
-2. Cambia el campo "activa" de true a false (o borra la clave entera).
-3. Inmediatamente el bot de ese cliente quedará bloqueado en todos sus equipos.
+Puedes ejecutar desde la consola cuando necesites crear un nuevo paquete:
+python generar_licencias.py --cantidad 20 --empresa "Nombre del Cliente" --vencimiento "2026-12-31" --prefijo "INVIMA"
+
+Esto creará automáticamente:
+1. "licencias_importar_en_RAIZ.json" -> Listo para importar en Firebase (ignorado por Git).
+2. "LISTADO_20_LICENCIAS_CLIENTE.txt" -> Listo para enviar al cliente (ignorado por Git).
 
 ------------------------------------------------------------------------
-CLAVES DE PRUEBA CREADAS INICIALMENTE:
+4. ¿CÓMO GESTIONAR, REVOCAR O TRASLADAR UN EQUIPO?
 ------------------------------------------------------------------------
-• DEMO-2026-INVIMA   (Permite 3 computadores)
-• INVIMA-PRO-8899    (Permite 5 computadores)
+• TRASLADAR LICENCIA A OTRO COMPUTADOR (si el cliente cambió de PC):
+  Entra a Firebase -> busca la clave del cliente -> abre el nodo "equipos" ->
+  elimina el HWID antiguo con la (X). En el nuevo computador ya podrán activarla.
+
+• BLOQUEAR O SUSPENDER UN PUESTO ESPECÍFICO:
+  Busca la clave en Firebase y cambia "activa" de true a false.
+  Ese puesto quedará inhabilitado inmediatamente.
 ========================================================================

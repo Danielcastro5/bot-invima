@@ -7,3 +7,31 @@ __pycache__/
 .vscode/
 .idea/
 reporte_errores_*.txt
+
+# Archivos de licencias y claves (Seguridad: NUNCA subir a GitHub)
+.firebase/
+licencias_*.json
+LISTADO_*.txt
+*.dat
+license*.json
+chrome_profile_bot/
+
+# Telemetría y cachés de Chrome local
+BrowserMetrics/
+Crashpad/
+GPUPersistentCache/
+GrShaderCache/
+ShaderCache/
+component_crx_cache/
+extensions_crx_cache/
+optimization_guide_model_store/
+segmentation_platform/
+*.pma
+*.db
+*.db-journal
+Default/
+First Run
+Last Browser
+Last Version
+Local State
+Variations
