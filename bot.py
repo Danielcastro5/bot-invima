@@ -26,7 +26,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 PUERTO_CHROME = 9222   # Puerto de depuración de Chrome
 
-VERSION_ACTUAL = "v1.1.4"
+VERSION_ACTUAL = "v1.1.5"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/Danielcastro5/bot-invima/main/version.json"
 FIREBASE_DB_URL = "https://bot-invima-licencias-default-rtdb.firebaseio.com"
 SECRET_SALT_LICENCIA = "BOT_INVIMA_SECURE_AUTH_SALT_2026_V1"
@@ -520,6 +520,18 @@ def obtener_dict_proceso(cfg, nombre_proceso):
 
 
 # --------------------------------------------------------------------------
+#  Normalización de cadenas (ignora tildes, acentos, mayúsculas y espacios extra)
+# --------------------------------------------------------------------------
+import unicodedata
+
+def normalizar_texto(texto):
+    if not texto:
+        return ""
+    s = unicodedata.normalize('NFD', str(texto).strip().lower())
+    return "".join(c for c in s if unicodedata.category(c) != 'Mn')
+
+
+# --------------------------------------------------------------------------
 #  Lectura y validación del Excel para el proceso activo
 # --------------------------------------------------------------------------
 def leer_excel(ruta, app, cfg, proceso_config):
@@ -533,23 +545,70 @@ def leer_excel(ruta, app, cfg, proceso_config):
         return None
 
     nombre_hoja = proceso_config.get("NOMBRE_HOJA", "Matriz Presentaciones")
-    if nombre_hoja not in libro.sheetnames:
+    
+    # Búsqueda flexible de la hoja (exacta o ignorando tildes y mayúsculas)
+    hoja_encontrada = None
+    if nombre_hoja in libro.sheetnames:
+        hoja_encontrada = nombre_hoja
+    else:
+        norm_hoja_req = normalizar_texto(nombre_hoja)
+        for s in libro.sheetnames:
+            if normalizar_texto(s) == norm_hoja_req:
+                hoja_encontrada = s
+                break
+
+    if not hoja_encontrada:
         app.log(f"❌ ERROR: El Excel seleccionado no contiene la hoja '{nombre_hoja}'.", "error")
         app.log(f"📋 Hojas disponibles en este Excel: {', '.join(libro.sheetnames)}", "warning")
         app.log(f"💡 Asegúrate de que el Excel contenga una pestaña llamada '{nombre_hoja}'", "info")
         return None
 
-    hoja = libro[nombre_hoja]
+    hoja = libro[hoja_encontrada]
     crudas = list(hoja.iter_rows(values_only=True))
     if len(crudas) < 2:
-        app.log(f"❌ ERROR: La hoja '{nombre_hoja}' no contiene registros suficientes.", "error")
+        app.log(f"❌ ERROR: La hoja '{hoja_encontrada}' no contiene registros suficientes.", "error")
         return None
 
     encabezados = [str(c).strip() if c is not None else "" for c in crudas[0]]
     campos_req = proceso_config.get("CAMPOS", [])
-    faltan = [c["columna"] for c in campos_req if c["columna"] not in encabezados]
+    
+    # Mapeo de columnas requeridas con soporte de alias y normalización
+    mapa_columnas = {}
+    faltan = []
+
+    for c in campos_req:
+        col_nombre = c["columna"]
+        alias_lista = [col_nombre] + c.get("alias", [])
+        encontrado_idx = None
+
+        for idx, enc in enumerate(encabezados):
+            norm_enc = normalizar_texto(enc)
+            for a in alias_lista:
+                if enc == a or norm_enc == normalizar_texto(a):
+                    encontrado_idx = idx
+                    break
+            if encontrado_idx is not None:
+                break
+
+        if encontrado_idx is not None:
+            mapa_columnas[col_nombre] = encontrado_idx
+        else:
+            faltan.append(col_nombre)
+
+    col_extra = proceso_config.get("COLUMNA_NOMBRE_FORMULA")
+    if col_extra:
+        encontrado_extra = None
+        for idx, enc in enumerate(encabezados):
+            if enc == col_extra or normalizar_texto(enc) == normalizar_texto(col_extra) or "formula" in normalizar_texto(enc):
+                encontrado_extra = idx
+                break
+        if encontrado_extra is not None:
+            mapa_columnas[col_extra] = encontrado_extra
+        elif col_extra not in faltan:
+            faltan.append(col_extra)
+
     if faltan:
-        app.log(f"❌ ERROR: Faltan las siguientes columnas en la hoja '{nombre_hoja}':", "error")
+        app.log(f"❌ ERROR: Faltan las siguientes columnas en la hoja '{hoja_encontrada}':", "error")
         for c in faltan:
             app.log(f"   • {c}", "error")
         return None
@@ -559,24 +618,13 @@ def leer_excel(ruta, app, cfg, proceso_config):
         if all(v is None for v in cruda):
             continue
         fila = {"__linea_excel__": i}
-        for j, enc in enumerate(encabezados):
-            v = cruda[j] if j < len(cruda) else None
-            fila[enc] = "" if v is None else str(v).strip()
+        for col_nombre, col_idx in mapa_columnas.items():
+            v = cruda[col_idx] if col_idx < len(cruda) else None
+            fila[col_nombre] = "" if v is None else str(v).strip()
         filas.append(fila)
 
-    app.log(f"✅ Excel validado correctamente para la hoja '{nombre_hoja}': {len(filas)} filas cargadas.", "success")
+    app.log(f"✅ Excel validado correctamente para la hoja '{hoja_encontrada}': {len(filas)} filas cargadas.", "success")
     return filas
-
-# --------------------------------------------------------------------------
-#  Normalización de cadenas (ignora tildes, acentos, mayúsculas y espacios extra)
-# --------------------------------------------------------------------------
-import unicodedata
-
-def normalizar_texto(texto):
-    if not texto:
-        return ""
-    s = unicodedata.normalize('NFD', str(texto).strip().lower())
-    return "".join(c for c in s if unicodedata.category(c) != 'Mn')
 
 
 def hacer_clic_opcion(opcion_locator):
@@ -1087,9 +1135,39 @@ def llenar_switch(page, campo, valor, app):
 
 
 def llenar_campo_composicion(page, campo, fila, app, cfg):
-    valor = fila.get(campo["columna"], "")
+    col_nombre = campo["columna"]
+    valor = fila.get(col_nombre, "")
+    es_listado_ref = "listado" in col_nombre.lower() and "referencia" in col_nombre.lower()
+
     if not valor or str(valor).strip() == "":
-        return
+        if not es_listado_ref:
+            return
+
+        # Si 'Listado de referencia' está vacío en Excel, seleccionar la primera opción disponible si el campo es visible
+        target = page.locator(campo["selector"]).first
+        try:
+            if target.count() == 0 or not target.is_visible():
+                return
+        except Exception:
+            return
+
+        app.log(f"   ➔ {col_nombre}: (Vacío en Excel -> Seleccionando primera opción disponible)", "detail")
+        try:
+            target.click(force=True, timeout=2000)
+            time.sleep(0.3)
+            sugerencia_sel = campo.get("selector_sugerencia") or ".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option"
+            page.wait_for_selector(sugerencia_sel, timeout=3000)
+            dropdown_activo = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)").last
+            opciones = dropdown_activo.locator(".ant-select-item-option, div[role='option'], .ant-select-item-option-content")
+            if opciones.count() > 0:
+                txt_primera = opciones.first.inner_text().strip()
+                app.log(f"      🎯 Seleccionada primera opción: '{txt_primera}'", "detail")
+                hacer_clic_opcion(opciones.first)
+                time.sleep(0.4)
+                return
+        except Exception as e_list:
+            app.log(f"      ℹ️ No se requirió listado de referencia: {e_list}", "detail")
+            return
 
     target = page.locator(campo["selector"]).first
     try:
@@ -1111,6 +1189,14 @@ def llenar_campo_composicion(page, campo, fila, app, cfg):
 
     try:
         if campo["tipo"] == "texto":
+            try:
+                tag_name = target.evaluate("el => el.tagName.toLowerCase()")
+            except Exception:
+                tag_name = "input"
+            if tag_name not in ["input", "textarea"]:
+                input_child = target.locator("input, textarea").first
+                if input_child.count() > 0:
+                    target = input_child
             target.fill(str(valor))
         elif campo["tipo"] == "select":
             llenar_select(page, campo, valor, timeout_ms, app)
@@ -1161,6 +1247,145 @@ def guardar_reporte_errores(ruta_excel, nombre_proceso, lista_errores):
     except Exception as e:
         print(f"Error escribiendo reporte de errores: {e}")
         return None
+
+
+# --------------------------------------------------------------------------
+#  Manejador Especializado para Fórmula Marco (2 Niveles: Fórmula e Ingredientes)
+# --------------------------------------------------------------------------
+def ejecutar_proceso_formula_marco(page, proceso_cfg, filas, app, cfg, timeout_ms, ruta_excel):
+    from itertools import groupby
+
+    col_nombre_formula = proceso_cfg.get("COLUMNA_NOMBRE_FORMULA", "Nombre de la fórmula marco")
+    selector_abrir_formula = proceso_cfg.get("BOTON_ABRIR_MODAL", "")
+    selector_modal_formula = proceso_cfg.get("SELECTOR_MODAL_PRINCIPAL", ".ant-modal-wrap, .ant-modal-content")
+    selector_campo_nombre = proceso_cfg.get("SELECTOR_CAMPO_NOMBRE_FORMULA", ".ant-modal-body form input, .ant-modal-body input")
+    selector_anadir_ing = proceso_cfg.get("BOTON_ANADIR_INGREDIENTE", "button:has-text('Añadir ingrediente'), button:has-text('Agregar ingrediente')")
+    selector_modal_ing = proceso_cfg.get("SELECTOR_MODAL_INGREDIENTE", ".ant-modal-wrap, .ant-modal-content")
+    selector_guardar_ing = proceso_cfg.get("BOTON_GUARDAR_INGREDIENTE", ".ant-modal-footer button.ant-btn-primary, button:has-text('Guardar')")
+    selector_guardar_formula = proceso_cfg.get("BOTON_GUARDAR_FORMULA", ".ant-modal-footer button.ant-btn-primary, button:has-text('Guardar')")
+    campos_ingrediente = proceso_cfg.get("CAMPOS", [])
+
+    # Detectar el nombre real de la columna en el Excel (ignorando tildes y mayúsculas)
+    col_nombre_formula_real = col_nombre_formula
+    if filas:
+        for k in filas[0].keys():
+            if k == "__linea_excel__": continue
+            if normalizar_texto(k) == normalizar_texto(col_nombre_formula) or "formula" in normalizar_texto(k):
+                col_nombre_formula_real = k
+                break
+
+    grupos_formulas = []
+    for nombre_f, items in groupby(filas, key=lambda f: f.get(col_nombre_formula_real, "").strip()):
+        if not nombre_f:
+            nombre_f = "Fórmula Marco"
+        grupos_formulas.append((nombre_f, list(items)))
+
+    total_formulas = len(grupos_formulas)
+    total_ingredientes = len(filas)
+    ingredientes_procesados = 0
+    app.actualizar_progreso(0, total_ingredientes)
+    app.log(f"📋 Se detectaron {total_formulas} fórmulas marco para procesar ({total_ingredientes} ingredientes en total).", "info")
+
+    exitosos = 0
+    errores = 0
+    lista_errores = []
+
+    for idx_f, (nombre_formula, lista_ingredientes) in enumerate(grupos_formulas, start=1):
+        if app.debe_detener:
+            app.log("\n⏹️ Proceso detenido completamente por el usuario.", "warning")
+            break
+
+        while app.debe_pausar and not app.debe_detener:
+            time.sleep(0.3)
+
+        if app.debe_detener:
+            break
+
+        app.log(f"\n🏷️ [Fórmula {idx_f} de {total_formulas}] '{nombre_formula}' ({len(lista_ingredientes)} ingredientes)...", "header")
+
+        try:
+            # 1. Abrir modal principal de Fórmula Marco
+            app.log(f"   🖱️ Abriendo ventana de Fórmula Marco...", "detail")
+            page.locator(selector_abrir_formula).first.click(timeout=timeout_ms)
+            page.wait_for_selector(selector_modal_formula, state="visible", timeout=timeout_ms)
+            time.sleep(0.4)
+
+            # 2. Escribir nombre de la fórmula marco
+            app.log(f"   ✍️ Asignando nombre: '{nombre_formula}'", "detail")
+            try:
+                campo_nombre = page.locator(selector_campo_nombre).first
+                campo_nombre.click(force=True, timeout=3000)
+                campo_nombre.fill(nombre_formula)
+            except Exception as e_nom:
+                app.log(f"   ⚠️ No se pudo asignar nombre a la fórmula: {e_nom}", "warning")
+            time.sleep(0.3)
+
+            # 3. Llenar cada uno de los ingredientes en el submodal
+            for num_ing, fila_ing in enumerate(lista_ingredientes, start=1):
+                if app.debe_detener:
+                    break
+
+                while app.debe_pausar and not app.debe_detener:
+                    time.sleep(0.3)
+
+                ingredientes_procesados += 1
+                app.actualizar_progreso(ingredientes_procesados, total_ingredientes)
+
+                linea_ex = fila_ing["__linea_excel__"]
+                app.log(f"   🧪 Ingrediente {num_ing}/{len(lista_ingredientes)} (Línea Excel #{linea_ex})...", "detail")
+
+                # Clic en "Añadir ingrediente"
+                app.log(f"   🖱️ Clic en 'Añadir ingrediente'...", "detail")
+                btn_anadir = page.locator(selector_anadir_ing).first
+                try:
+                    btn_anadir.click(force=True, timeout=timeout_ms)
+                except Exception:
+                    page.locator("button:has-text('Añadir'), button:has-text('Agregar'), button:has-text('Adicionar')").first.click(force=True)
+
+                time.sleep(0.5)
+
+                # Llenar campos de ingrediente (reutilizando la lógica probada de composición)
+                for campo in campos_ingrediente:
+                    llenar_campo(page, campo, fila_ing, linea_ex, app, cfg, "Composición")
+
+                # Guardar ingrediente (en el modal de ingrediente)
+                app.log(f"   💾 Guardando ingrediente...", "detail")
+                btn_guardar_ing = page.locator(selector_guardar_ing).last
+                btn_guardar_ing.click(force=True, timeout=timeout_ms)
+                time.sleep(0.8)
+
+                exitosos += 1
+                app.incrementar_exitos()
+
+            # 4. Guardar la fórmula marco completa
+            if not app.debe_detener:
+                app.log(f"   💾 Guardando Fórmula Marco '{nombre_formula}'...", "detail")
+                btn_guardar_form = page.locator(selector_guardar_formula).first
+                btn_guardar_form.click(force=True, timeout=timeout_ms)
+                time.sleep(1.0)
+                app.log(f"   ✨ Fórmula Marco '{nombre_formula}' guardada exitosamente.", "success")
+
+        except Exception as e:
+            errores += 1
+            app.incrementar_errores()
+            app.log(f"   ❌ Error en Fórmula Marco '{nombre_formula}': {e}", "error")
+            lista_errores.append({
+                "linea_excel": lista_ingredientes[0]["__linea_excel__"] if lista_ingredientes else 0,
+                "columna_afectada": "Estructura Fórmula Marco",
+                "valor_excel": nombre_formula,
+                "motivo": str(e)
+            })
+            try:
+                page.keyboard.press("Escape")
+                time.sleep(0.4)
+                page.keyboard.press("Escape")
+            except Exception:
+                pass
+
+    if lista_errores:
+        guardar_reporte_errores(ruta_excel, "Fórmula Marco", lista_errores)
+
+    return exitosos, errores
 
 
 # --------------------------------------------------------------------------
@@ -1220,6 +1445,14 @@ def ejecutar(ruta_excel, nombre_proceso, app):
             app.log(f"🌐 Pestaña activa: {page.url}", "info")
             app.log("=" * 60, "divider")
 
+            # Si el proceso es de tipo formula_marco (2 niveles), derivar al manejador especializado
+            if proceso_cfg.get("TIPO_PROCESO") == "formula_marco":
+                exitosos, errores = ejecutar_proceso_formula_marco(page, proceso_cfg, filas, app, cfg, timeout_ms, ruta_excel)
+                app.log("=" * 60, "divider")
+                app.log(f"🏁 PROCESO FINALIZADO: {exitosos} ingredientes registrados, {errores} fallidos.", "header")
+                app.finalizar_proceso(exito=(errores == 0))
+                return
+
             exitosos = 0
             errores = 0
             lista_errores = []
@@ -1269,6 +1502,56 @@ def ejecutar(ruta_excel, nombre_proceso, app):
 
                         app.log(f"   ⏳ Esperando ventana modal...", "detail")
                         page.wait_for_selector(selector_modal, state="visible", timeout=timeout_ms)
+                        time.sleep(0.5)
+
+                        # Si el proceso requiere una acción previa dentro del modal (ej. 'Usar Fórmula Marco')
+                        boton_accion_previa = proceso_cfg.get("BOTON_ACCION_PREVIA", "").strip()
+                        if boton_accion_previa:
+                            app.log(f"   🖱️ Buscando opción interior (Usar Fórmula Marco)...", "detail")
+                            time.sleep(0.4)
+                            clic_exitoso = False
+
+                            candidatos = [
+                                "button:has-text('Usar Fórmula Marco')",
+                                "button:has-text('Usar fórmula marco')",
+                                "button:has-text('Usar Formula Marco')",
+                                "button:has-text('Usar formula marco')",
+                                "button:has-text('Fórmula Marco')",
+                                "button:has-text('Formula Marco')",
+                                "button:has-text('Marco')",
+                                ".ant-modal-confirm-body button",
+                                ".ant-modal-body button",
+                                boton_accion_previa
+                            ]
+
+                            for cand in candidatos:
+                                try:
+                                    loc = page.locator(cand)
+                                    cnt = loc.count()
+                                    if cnt > 0:
+                                        for idx_btn in range(cnt):
+                                            btn_elem = loc.nth(idx_btn)
+                                            txt_btn = btn_elem.inner_text().strip()
+                                            if "marco" in txt_btn.lower() or "formula" in txt_btn.lower():
+                                                app.log(f"   🎯 Clic en opción encontrada: '{txt_btn}'", "detail")
+                                                btn_elem.scroll_into_view_if_needed(timeout=1000)
+                                                btn_elem.click(force=True, timeout=3000)
+                                                clic_exitoso = True
+                                                break
+                                        if clic_exitoso:
+                                            break
+                                        if cand == boton_accion_previa:
+                                            loc.first.click(force=True, timeout=3000)
+                                            clic_exitoso = True
+                                            break
+                                except Exception:
+                                    continue
+
+                            if not clic_exitoso:
+                                app.log(f"   ⚠️ Intentando clic forzado en selector configurado...", "warning")
+                                page.locator(boton_accion_previa).first.click(force=True, timeout=timeout_ms)
+
+                            time.sleep(0.8)
 
                         # Llenar cada uno de los campos configurados para este proceso
                         for campo in campos_proceso:
@@ -1387,9 +1670,9 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("Automatizador INVIMA")
-        self.geometry("780x720")
-        self.minsize(720, 640)
+        self.title("Automatizador INVIMA PRO")
+        self.geometry("860x780")
+        self.minsize(820, 700)
 
         # Cargar icono de ventana
         base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
@@ -1693,125 +1976,350 @@ Encabezados requeridos en la Fila 1:
             return list(self.cfg.PROCESOS.keys())
         return ["Información General (Presentaciones)"]
 
+    def _obtener_icono_proceso(self, nombre_proceso):
+        nombre_lower = str(nombre_proceso).lower()
+        if "presentaci" in nombre_lower:
+            return "📦"
+        elif "grupo" in nombre_lower and "composici" in nombre_lower:
+            return "🔗"
+        elif "grupo" in nombre_lower:
+            return "👥"
+        elif "marco" in nombre_lower:
+            return "🧬"
+        elif "ingrediente" in nombre_lower:
+            return "🧪"
+        elif "organol" in nombre_lower:
+            return "👃"
+        return "📋"
+
+    def _obtener_hoja_para(self, nombre_proceso):
+        proceso_cfg = obtener_dict_proceso(self.cfg, nombre_proceso)
+        return proceso_cfg.get("NOMBRE_HOJA", "Matriz")
+
+    def _obtener_hoja_actual(self):
+        nombre_proceso = getattr(self, 'proceso_seleccionado', self._obtener_lista_procesos()[0])
+        proceso_cfg = obtener_dict_proceso(self.cfg, nombre_proceso)
+        return proceso_cfg.get("NOMBRE_HOJA", "Matriz Presentaciones")
+
+    def _obtener_info_campos(self):
+        nombre_proceso = getattr(self, 'proceso_seleccionado', self._obtener_lista_procesos()[0])
+        proceso_cfg = obtener_dict_proceso(self.cfg, nombre_proceso)
+        campos = proceso_cfg.get("CAMPOS", [])
+        return f"{len(campos)} campos configurados"
+
+    def seleccionar_proceso(self, nuevo_proceso):
+        if self.en_ejecucion:
+            return
+        self.proceso_seleccionado = nuevo_proceso
+        if hasattr(self, 'dropdown_menu'):
+            self.dropdown_menu.actualizar_seleccion(nuevo_proceso)
+        self.on_proceso_changed(nuevo_proceso)
+
     def _construir_interfaz(self):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(4, weight=1)
 
-        # 1. HEADER / BARRA DE TÍTULO
-        frame_header = ctk.CTkFrame(self, fg_color="#1E293B", corner_radius=12)
-        frame_header.grid(row=0, column=0, padx=16, pady=(16, 6), sticky="ew")
+        lista_procesos = self._obtener_lista_procesos()
+        self.proceso_seleccionado = lista_procesos[0]
+
+        # Componente de Dropdown Flotante Moderno (No desplaza la ventana, tiene barra lateral)
+        class ModernFloatingDropdown(ctk.CTkFrame):
+            def __init__(self, master, app, procesos):
+                super().__init__(master, fg_color="transparent")
+                self.app = app
+                self.procesos = procesos
+                self.popup = None
+
+                # Botón Principal Azul Llamativo
+                self.btn_principal = ctk.CTkButton(
+                    self,
+                    text=f"{self.app._obtener_icono_proceso(self.app.proceso_seleccionado)}  {self.app.proceso_seleccionado}   ▼",
+                    font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+                    fg_color="#2563EB",
+                    hover_color="#1D4ED8",
+                    border_color="#3B82F6",
+                    border_width=1,
+                    text_color="#FFFFFF",
+                    corner_radius=10,
+                    height=44,
+                    anchor="w",
+                    command=self.toggle
+                )
+                self.btn_principal.pack(fill="x", padx=16, pady=(0, 4))
+
+            def toggle(self):
+                if self.app.en_ejecucion:
+                    return
+                if self.popup and self.popup.winfo_exists():
+                    self.cerrar()
+                else:
+                    self.abrir()
+
+            def abrir(self):
+                if self.popup and self.popup.winfo_exists():
+                    try:
+                        self.popup.destroy()
+                    except Exception:
+                        pass
+
+                self.btn_principal.update_idletasks()
+                x = self.btn_principal.winfo_rootx()
+                y = self.btn_principal.winfo_rooty() + self.btn_principal.winfo_height() + 4
+                ancho = self.btn_principal.winfo_width()
+                alto_total = min(len(self.procesos) * 52 + 16, 260)
+
+                self.popup = ctk.CTkToplevel(self.app)
+                self.popup.overrideredirect(True)
+                self.popup.attributes("-topmost", True)
+                self.popup.geometry(f"{ancho}x{alto_total}+{x}+{y}")
+                self.popup.configure(fg_color="#090D16")
+
+                frame_borde = ctk.CTkFrame(
+                    self.popup,
+                    fg_color="#090D16",
+                    corner_radius=12,
+                    border_width=2,
+                    border_color="#3B82F6"
+                )
+                frame_borde.pack(fill="both", expand=True)
+
+                scroll_frame = ctk.CTkScrollableFrame(
+                    frame_borde,
+                    fg_color="transparent",
+                    corner_radius=10,
+                    scrollbar_button_color="#334155",
+                    scrollbar_button_hover_color="#3B82F6"
+                )
+                scroll_frame.pack(fill="both", expand=True, padx=4, pady=4)
+
+                for proc in self.procesos:
+                    icono = self.app._obtener_icono_proceso(proc)
+                    hoja = self.app._obtener_hoja_para(proc)
+                    es_activo = (proc == self.app.proceso_seleccionado)
+
+                    btn_item = ctk.CTkButton(
+                        scroll_frame,
+                        text=f"  {icono}  {proc}{'  ✓' if es_activo else ''}\n     📄 Hoja en Excel: {hoja}",
+                        font=ctk.CTkFont(family="Segoe UI", size=12),
+                        fg_color="#1D4ED8" if es_activo else "#090D16",
+                        hover_color="#1E293B",
+                        border_color="#38BDF8" if es_activo else "#1E293B",
+                        border_width=1 if es_activo else 0,
+                        text_color="#FFFFFF" if es_activo else "#CBD5E1",
+                        corner_radius=8,
+                        height=42,
+                        anchor="w",
+                        command=lambda p=proc: self.seleccionar(p)
+                    )
+                    btn_item.pack(fill="x", padx=4, pady=3)
+
+                self.btn_principal.configure(
+                    text=f"{self.app._obtener_icono_proceso(self.app.proceso_seleccionado)}  {self.app.proceso_seleccionado}   ▲"
+                )
+
+                self.app.bind("<Button-1>", self._on_app_click, add="+")
+
+            def _on_app_click(self, event):
+                if not self.popup or not self.popup.winfo_exists():
+                    return
+                x_click = event.x_root
+                y_click = event.y_root
+                try:
+                    px = self.popup.winfo_rootx()
+                    py = self.popup.winfo_rooty()
+                    pw = self.popup.winfo_width()
+                    ph = self.popup.winfo_height()
+                    bx = self.btn_principal.winfo_rootx()
+                    by = self.btn_principal.winfo_rooty()
+                    bw = self.btn_principal.winfo_width()
+                    bh = self.btn_principal.winfo_height()
+
+                    if not (px <= x_click <= px + pw and py <= y_click <= py + ph) and \
+                       not (bx <= x_click <= bx + bw and by <= y_click <= by + bh):
+                        self.cerrar()
+                except Exception:
+                    pass
+
+            def cerrar(self):
+                if self.popup and self.popup.winfo_exists():
+                    try:
+                        self.popup.destroy()
+                    except Exception:
+                        pass
+                    self.popup = None
+                self.btn_principal.configure(
+                    text=f"{self.app._obtener_icono_proceso(self.app.proceso_seleccionado)}  {self.app.proceso_seleccionado}   ▼"
+                )
+
+            def seleccionar(self, proc):
+                self.app.seleccionar_proceso(proc)
+                self.cerrar()
+
+            def actualizar_seleccion(self, proc):
+                self.btn_principal.configure(
+                    text=f"{self.app._obtener_icono_proceso(proc)}  {proc}   ▼"
+                )
+
+            def configure_state(self, state):
+                self.btn_principal.configure(state=state)
+                if state == "disabled":
+                    self.cerrar()
+
+        # Proxy para compatibilidad con código existente que use self.opt_proceso
+        class SelectorProcesoProxy:
+            def __init__(self, app):
+                self.app = app
+            def get(self):
+                return self.app.proceso_seleccionado
+            def set(self, valor):
+                self.app.seleccionar_proceso(valor)
+            def configure(self, **kwargs):
+                state = kwargs.get("state")
+                if state and hasattr(self.app, "dropdown_menu"):
+                    self.app.dropdown_menu.configure_state(state)
+
+        self.opt_proceso = SelectorProcesoProxy(self)
+
+        # 1. HEADER / BARRA DE TÍTULO PRINCIPAL (PREMIUM GLASSMORPHIC)
+        frame_header = ctk.CTkFrame(self, fg_color="#0F172A", corner_radius=16, border_width=1, border_color="#1E293B")
+        frame_header.grid(row=0, column=0, padx=18, pady=(16, 6), sticky="ew")
         frame_header.grid_columnconfigure(0, weight=1)
 
+        frame_header_text = ctk.CTkFrame(frame_header, fg_color="transparent")
+        frame_header_text.grid(row=0, column=0, padx=16, pady=10, sticky="w")
+
         lbl_title = ctk.CTkLabel(
-            frame_header,
-            text="🤖 Automatizador INVIMA",
-            font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"),
+            frame_header_text,
+            text="⚡ AUTOMATIZADOR INVIMA PRO",
+            font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color="#F8FAFC"
         )
-        lbl_title.grid(row=0, column=0, padx=16, pady=(12, 2), sticky="w")
+        lbl_title.pack(anchor="w")
 
         lbl_subtitle = ctk.CTkLabel(
-            frame_header,
-            text="Sistema Multi-Proceso de Registro Automático",
-            font=ctk.CTkFont(family="Segoe UI", size=12),
+            frame_header_text,
+            text="Motor Inteligente Multi-Proceso • Masterdent Soft",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color="#94A3B8"
         )
-        lbl_subtitle.grid(row=1, column=0, padx=16, pady=(0, 12), sticky="w")
+        lbl_subtitle.pack(anchor="w")
+
+        frame_header_actions = ctk.CTkFrame(frame_header, fg_color="transparent")
+        frame_header_actions.grid(row=0, column=1, padx=16, pady=10, sticky="e")
 
         btn_manual = ctk.CTkButton(
-            frame_header,
-            text="📖 Manual de Uso",
+            frame_header_actions,
+            text="📖 Manual",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            fg_color="#6366F1",
-            hover_color="#4F46E5",
+            fg_color="#4F46E5",
+            hover_color="#4338CA",
             height=32,
-            width=130,
+            width=90,
+            corner_radius=8,
             command=self.mostrar_modal_manual
         )
-        btn_manual.grid(row=0, column=1, padx=(0, 8), pady=12, sticky="e")
+        btn_manual.pack(side="left", padx=4)
 
         btn_chrome = ctk.CTkButton(
-            frame_header,
-            text="🌐 Abrir Chrome Bot",
+            frame_header_actions,
+            text="🌐 Chrome Bot",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            fg_color="#0EA5E9",
-            hover_color="#0284C7",
+            fg_color="#0284C7",
+            hover_color="#0369A1",
             height=32,
-            width=140,
+            width=110,
+            corner_radius=8,
             command=lambda: abrir_chrome_automatizado(self)
         )
-        btn_chrome.grid(row=0, column=2, padx=(0, 8), pady=12, sticky="e")
+        btn_chrome.pack(side="left", padx=4)
 
         self.badge_estado = ctk.CTkLabel(
-            frame_header,
+            frame_header_actions,
             text="● EN ESPERA",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             text_color="#94A3B8",
-            fg_color="#334155",
+            fg_color="#1E293B",
             corner_radius=8,
-            padx=12,
-            pady=4
+            padx=10,
+            pady=5
         )
-        self.badge_estado.grid(row=0, column=3, rowspan=2, padx=16, pady=12, sticky="e")
+        self.badge_estado.pack(side="left", padx=(4, 0))
 
-        # 2. SELECTOR DE PROCESO DE AUTOMATIZACIÓN
-        frame_proceso = ctk.CTkFrame(self, fg_color="#0F172A", corner_radius=12)
-        frame_proceso.grid(row=1, column=0, padx=16, pady=6, sticky="ew")
-        frame_proceso.grid_columnconfigure(1, weight=1)
+        # 2. SELECTOR DE FORMATO / PROCESO (MODERN DROPDOWN MENU)
+        frame_proceso = ctk.CTkFrame(self, fg_color="#0F172A", corner_radius=16, border_width=1, border_color="#1E293B")
+        frame_proceso.grid(row=1, column=0, padx=18, pady=4, sticky="ew")
+        frame_proceso.grid_columnconfigure(0, weight=1)
+
+        frame_proceso_header = ctk.CTkFrame(frame_proceso, fg_color="transparent")
+        frame_proceso_header.pack(fill="x", padx=16, pady=(10, 4))
 
         lbl_sec_proceso = ctk.CTkLabel(
-            frame_proceso,
-            text="📋 Proceso a Automatizar:",
-            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            frame_proceso_header,
+            text="📋 FORMATO A REGISTRAR:",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             text_color="#E2E8F0"
         )
-        lbl_sec_proceso.grid(row=0, column=0, padx=(16, 8), pady=12, sticky="w")
+        lbl_sec_proceso.pack(side="left")
 
-        lista_procesos = self._obtener_lista_procesos()
-        self.opt_proceso = ctk.CTkOptionMenu(
-            frame_proceso,
-            values=lista_procesos,
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            dropdown_font=ctk.CTkFont(family="Segoe UI", size=12),
-            fg_color="#3B82F6",
-            button_color="#2563EB",
-            button_hover_color="#1D4ED8",
-            height=36,
-            command=self.on_proceso_changed
+        lbl_sec_hint = ctk.CTkLabel(
+            frame_proceso_header,
+            text="(Haz clic para desplegar opciones)",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color="#64748B"
         )
-        self.opt_proceso.grid(row=0, column=1, padx=(0, 16), pady=12, sticky="ew")
-        self.opt_proceso.set(lista_procesos[0])
+        lbl_sec_hint.pack(side="left", padx=(6, 0))
+
+        # Instancia del Dropdown Flotante Moderno
+        self.dropdown_menu = ModernFloatingDropdown(frame_proceso, self, lista_procesos)
+        self.dropdown_menu.pack(fill="x", pady=(0, 4))
+
+        # Banner informativo de la hoja y campos
+        frame_info_hoja = ctk.CTkFrame(frame_proceso, fg_color="#1E293B", corner_radius=8)
+        frame_info_hoja.pack(fill="x", padx=16, pady=(0, 10))
 
         self.lbl_info_hoja = ctk.CTkLabel(
-            frame_proceso,
-            text=f"📄 Hoja requerida en Excel: '{self._obtener_hoja_actual()}'",
-            font=ctk.CTkFont(size=11),
-            text_color="#38BDF8"
+            frame_info_hoja,
+            text=f"📌 Hoja en Excel: '{self._obtener_hoja_actual()}'",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#38BDF8",
+            padx=10,
+            pady=5
         )
-        self.lbl_info_hoja.grid(row=1, column=0, columnspan=2, padx=16, pady=(0, 10), sticky="w")
+        self.lbl_info_hoja.pack(side="left")
+
+        self.lbl_info_campos = ctk.CTkLabel(
+            frame_info_hoja,
+            text=f"🧪 {self._obtener_info_campos()}",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#34D399",
+            padx=10,
+            pady=5
+        )
+        self.lbl_info_campos.pack(side="right")
 
         # 3. PANEL DE SELECCIÓN DE ARCHIVO EXCEL
-        frame_top = ctk.CTkFrame(self, fg_color="#0F172A", corner_radius=12)
-        frame_top.grid(row=2, column=0, padx=16, pady=6, sticky="ew")
+        frame_top = ctk.CTkFrame(self, fg_color="#0F172A", corner_radius=16, border_width=1, border_color="#1E293B")
+        frame_top.grid(row=2, column=0, padx=18, pady=4, sticky="ew")
         frame_top.grid_columnconfigure(0, weight=1)
 
         lbl_sec_archivo = ctk.CTkLabel(
             frame_top,
-            text="📁 Archivo de Datos Excel",
-            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-            text_color="#E2E8F0"
+            text="📁 ARCHIVO EXCEL DE ENTRADA:",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color="#CBD5E1"
         )
-        lbl_sec_archivo.grid(row=0, column=0, columnspan=2, padx=16, pady=(12, 4), sticky="w")
+        lbl_sec_archivo.grid(row=0, column=0, columnspan=2, padx=16, pady=(10, 2), sticky="w")
 
         self.entry_path = ctk.CTkEntry(
             frame_top,
-            placeholder_text="Seleccione el archivo .xlsx con los datos...",
-            font=ctk.CTkFont(size=12),
+            placeholder_text="Haz clic en 'Seleccionar Excel' para cargar tu matriz...",
+            font=ctk.CTkFont(family="Segoe UI", size=12),
             height=36,
-            fg_color="#1E293B",
-            border_color="#334155"
+            fg_color="#090D16",
+            border_color="#334155",
+            corner_radius=8
         )
-        self.entry_path.grid(row=1, column=0, padx=(16, 8), pady=(0, 12), sticky="ew")
+        self.entry_path.grid(row=1, column=0, padx=(16, 8), pady=(0, 10), sticky="ew")
 
         self.btn_browse = ctk.CTkButton(
             frame_top,
@@ -1820,13 +2328,14 @@ Encabezados requeridos en la Fila 1:
             fg_color="#3B82F6",
             hover_color="#2563EB",
             height=36,
+            corner_radius=8,
             command=self.seleccionar_excel
         )
-        self.btn_browse.grid(row=1, column=1, padx=(0, 16), pady=(0, 12))
+        self.btn_browse.grid(row=1, column=1, padx=(0, 16), pady=(0, 10))
 
-        # 4. PANEL DE BOTONES Y PROGRESO
-        frame_controls = ctk.CTkFrame(self, fg_color="#1E293B", corner_radius=12)
-        frame_controls.grid(row=3, column=0, padx=16, pady=6, sticky="ew")
+        # 4. PANEL DE CONTROLES Y TELEMETRÍA EN TIEMPO REAL
+        frame_controls = ctk.CTkFrame(self, fg_color="#0F172A", corner_radius=16, border_width=1, border_color="#1E293B")
+        frame_controls.grid(row=3, column=0, padx=18, pady=4, sticky="ew")
         frame_controls.grid_columnconfigure((0, 1, 2), weight=1)
 
         self.btn_comenzar = ctk.CTkButton(
@@ -1836,9 +2345,10 @@ Encabezados requeridos en la Fila 1:
             fg_color="#10B981",
             hover_color="#059669",
             height=40,
+            corner_radius=10,
             command=self.action_comenzar_reanudar
         )
-        self.btn_comenzar.grid(row=0, column=0, padx=(16, 6), pady=12, sticky="ew")
+        self.btn_comenzar.grid(row=0, column=0, padx=(16, 6), pady=(10, 6), sticky="ew")
 
         self.btn_pausar = ctk.CTkButton(
             frame_controls,
@@ -1847,10 +2357,11 @@ Encabezados requeridos en la Fila 1:
             fg_color="#F59E0B",
             hover_color="#D97706",
             height=40,
+            corner_radius=10,
             state="disabled",
             command=self.action_pausar
         )
-        self.btn_pausar.grid(row=0, column=1, padx=6, pady=12, sticky="ew")
+        self.btn_pausar.grid(row=0, column=1, padx=6, pady=(10, 6), sticky="ew")
 
         self.btn_detener = ctk.CTkButton(
             frame_controls,
@@ -1859,75 +2370,73 @@ Encabezados requeridos en la Fila 1:
             fg_color="#EF4444",
             hover_color="#DC2626",
             height=40,
+            corner_radius=10,
             state="disabled",
             command=self.action_detener
         )
-        self.btn_detener.grid(row=0, column=2, padx=(6, 16), pady=12, sticky="ew")
+        self.btn_detener.grid(row=0, column=2, padx=(6, 16), pady=(10, 6), sticky="ew")
 
         self.progress_bar = ctk.CTkProgressBar(
             frame_controls,
-            height=10,
-            corner_radius=5,
+            height=8,
+            corner_radius=4,
             progress_color="#10B981",
-            fg_color="#0F172A"
+            fg_color="#1E293B"
         )
-        self.progress_bar.grid(row=1, column=0, columnspan=3, padx=16, pady=(0, 8), sticky="ew")
+        self.progress_bar.grid(row=1, column=0, columnspan=3, padx=16, pady=(0, 6), sticky="ew")
         self.progress_bar.set(0.0)
 
         frame_metrics = ctk.CTkFrame(frame_controls, fg_color="transparent")
-        frame_metrics.grid(row=2, column=0, columnspan=3, padx=16, pady=(0, 10), sticky="ew")
+        frame_metrics.grid(row=2, column=0, columnspan=3, padx=16, pady=(0, 8), sticky="ew")
         frame_metrics.grid_columnconfigure((0, 1, 2), weight=1)
 
         self.lbl_metric_filas = ctk.CTkLabel(
-            frame_metrics, text="📊 Progreso: 0 / 0", font=ctk.CTkFont(size=11), text_color="#94A3B8"
+            frame_metrics, text="📊 Progreso: 0 / 0", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94A3B8"
         )
         self.lbl_metric_filas.grid(row=0, column=0, sticky="w")
 
         self.lbl_metric_exitos = ctk.CTkLabel(
-            frame_metrics, text="✅ Éxitos: 0", font=ctk.CTkFont(size=11), text_color="#34D399"
+            frame_metrics, text="✅ Éxitos: 0", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#34D399"
         )
         self.lbl_metric_exitos.grid(row=0, column=1, sticky="n")
 
         self.lbl_metric_errores = ctk.CTkLabel(
-            frame_metrics, text="❌ Errores: 0", font=ctk.CTkFont(size=11), text_color="#F87171"
+            frame_metrics, text="❌ Errores: 0", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#F87171"
         )
         self.lbl_metric_errores.grid(row=0, column=2, sticky="e")
 
-        # 5. TERMINAL / CONSOLA DE REGISTROS
-        frame_log = ctk.CTkFrame(self, fg_color="#0F172A", corner_radius=12)
-        frame_log.grid(row=4, column=0, padx=16, pady=(6, 16), sticky="nsew")
+        # 5. TERMINAL / CONSOLA DE EVENTOS
+        frame_log = ctk.CTkFrame(self, fg_color="#0F172A", corner_radius=16, border_width=1, border_color="#1E293B")
+        frame_log.grid(row=4, column=0, padx=18, pady=(4, 14), sticky="nsew")
         frame_log.grid_columnconfigure(0, weight=1)
         frame_log.grid_rowconfigure(1, weight=1)
 
         lbl_log_title = ctk.CTkLabel(
             frame_log,
-            text="💻 Consola de Registros y Eventos",
+            text="💻 Consola de Registros y Eventos en Vivo",
             font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             text_color="#94A3B8"
         )
-        lbl_log_title.grid(row=0, column=0, padx=16, pady=(10, 4), sticky="w")
+        lbl_log_title.grid(row=0, column=0, padx=16, pady=(8, 2), sticky="w")
 
         self.txt_log = ctk.CTkTextbox(
             frame_log,
             font=ctk.CTkFont(family="Consolas", size=11),
-            fg_color="#090D16",
+            fg_color="#030712",
             text_color="#38BDF8",
-            corner_radius=8,
+            corner_radius=10,
             border_width=1,
             border_color="#1E293B"
         )
-        self.txt_log.grid(row=1, column=0, padx=12, pady=(0, 12), sticky="nsew")
-
-    def _obtener_hoja_actual(self):
-        nombre_proceso = self.opt_proceso.get() if hasattr(self, 'opt_proceso') else self._obtener_lista_procesos()[0]
-        proceso_cfg = obtener_dict_proceso(self.cfg, nombre_proceso)
-        return proceso_cfg.get("NOMBRE_HOJA", "Matriz Presentaciones")
+        self.txt_log.grid(row=1, column=0, padx=12, pady=(0, 10), sticky="nsew")
 
     def on_proceso_changed(self, nuevo_proceso):
         self.cfg = cargar_config_dinamico()
         hoja_req = self._obtener_hoja_actual()
-        self.lbl_info_hoja.configure(text=f"📄 Hoja requerida en Excel: '{hoja_req}'")
-        self.log(f"🔄 Proceso cambiado a: '{nuevo_proceso}' (Hoja requerida: '{hoja_req}')", "info")
+        campos_info = self._obtener_info_campos()
+        self.lbl_info_hoja.configure(text=f"📌 Hoja en Excel: '{hoja_req}'")
+        self.lbl_info_campos.configure(text=f"🧪 {campos_info}")
+        self.log(f"🔄 Proceso cambiado a: '{nuevo_proceso}' (Hoja: '{hoja_req}')", "info")
 
         # Limpiar datos anteriores
         self.progress_bar.set(0.0)
@@ -1962,16 +2471,31 @@ Encabezados requeridos en la Fila 1:
 
     def actualizar_progreso(self, actual, total):
         porcentaje = actual / total if total > 0 else 0
-        self.progress_bar.set(porcentaje)
-        self.lbl_metric_filas.configure(text=f"📊 Progreso: {actual} / {total}")
+        def _update():
+            try:
+                self.progress_bar.set(porcentaje)
+                self.lbl_metric_filas.configure(text=f"📊 Progreso: {actual} / {total}")
+            except Exception:
+                pass
+        self.after(0, _update)
 
     def incrementar_exitos(self):
         self.num_exitos += 1
-        self.lbl_metric_exitos.configure(text=f"✅ Éxitos: {self.num_exitos}")
+        def _update():
+            try:
+                self.lbl_metric_exitos.configure(text=f"✅ Éxitos: {self.num_exitos}")
+            except Exception:
+                pass
+        self.after(0, _update)
 
     def incrementar_errores(self):
         self.num_errores += 1
-        self.lbl_metric_errores.configure(text=f"❌ Errores: {self.num_errores}")
+        def _update():
+            try:
+                self.lbl_metric_errores.configure(text=f"❌ Errores: {self.num_errores}")
+            except Exception:
+                pass
+        self.after(0, _update)
 
     def action_comenzar_reanudar(self):
         if not self.en_ejecucion:

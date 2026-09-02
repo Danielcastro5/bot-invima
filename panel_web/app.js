@@ -389,14 +389,14 @@ function generarNuevaClaveAleatoria() {
   return `INVIMA-2026-${b1}-${b2}`;
 }
 
-window.abrirModalRegenerar = function(clave, pcNombre) {
+window.abrirModalRegenerar = function (clave, pcNombre) {
   licenciaEnAccion = clave;
   modalOldKey.textContent = clave;
   modalPcName.textContent = pcNombre;
   modalRegenerar.classList.remove("hidden");
 };
 
-window.abrirModalDesvincular = function(clave, pcNombre) {
+window.abrirModalDesvincular = function (clave, pcNombre) {
   licenciaEnAccion = clave;
   modalDesvincularKey.textContent = clave;
   modalDesvincularPc.textContent = pcNombre;
@@ -489,7 +489,7 @@ async function ejecutarDesvinculacionPC() {
 // --------------------------------------------------------------------------
 // 5. UTILIDADES & NOTIFICACIONES (TOASTS)
 // --------------------------------------------------------------------------
-window.copiarAlPortapapeles = function(texto, btnElement) {
+window.copiarAlPortapapeles = function (texto, btnElement) {
   navigator.clipboard.writeText(texto).then(() => {
     const spanOriginal = btnElement.querySelector("span");
     const textoOriginal = spanOriginal ? spanOriginal.textContent : "";

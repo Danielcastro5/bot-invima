@@ -1,6 +1,6 @@
 ========================================================================
+                   AUTOMATIZADOR INVIMA v1.1.5
              MANUAL DE USUARIO Y GUÍA DE OPERACIÓN
-                   AUTOMATIZADOR INVIMA v1.1.4
 ========================================================================
 
 1. REQUISITOS PREVIOS DEL SISTEMA
@@ -48,6 +48,38 @@ Encabezados requeridos en la Fila 1:
   • Columna: Unidad de medida
   • Columna: ¿Es nanomaterial?
   • Columna: Tamaño de partícula (nm)
+
+--- PROCESO 3: Grupos ---
+Nombre exacto de la Hoja en Excel: Grupos
+Encabezados requeridos en la Fila 1:
+  • Columna: Nombre del grupo
+
+--- PROCESO 4: Fórmula Marco ---
+Nombre exacto de la Hoja en Excel: Fórmula Marco
+Encabezados requeridos en la Fila 1:
+  • Columna: Nombre de la fórmula marco
+  • Columna: Tipo
+  • Columna: Ingrediente / Mezcla
+  • Columna: Función
+  • Columna: Listado de referencia
+  • Columna: Cantidad
+  • Columna: Unidad de medida
+  • Columna: ¿Es nanomaterial?
+  • Columna: Tamaño de partícula (nm)
+
+--- PROCESO 5: Composición por Grupo ---
+Nombre exacto de la Hoja en Excel: Composición por grupo
+Encabezados requeridos en la Fila 1:
+  • Columna: Nombre del grupo (o Grupo)
+  • Columna: Nombre de la fórmula marco (o Fórmula Marco)
+
+--- PROCESO 6: Información General (Características Organolépticas) ---
+Nombre exacto de la Hoja en Excel: Características Organolépticas
+Encabezados requeridos en la Fila 1:
+  • Columna: Grupo Cosmético (o Grupo)
+  • Columna: Color
+  • Columna: Olor
+  • Columna: Sabor
 
 4. MANEJO DE ERRORES Y REPORTES
 ------------------------------------------------------------------------
