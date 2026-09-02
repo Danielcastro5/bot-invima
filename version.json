@@ -1,6 +1,6 @@
 {
-  "version": "v1.1.4",
-  "exe_url": "https://github.com/Danielcastro5/bot-invima/releases/download/v1.1.4/Automatizador_INVIMA.exe",
+  "version": "v1.1.5",
+  "exe_url": "https://github.com/Danielcastro5/bot-invima/releases/download/v1.1.5/Automatizador_INVIMA.exe",
   "config_url": "",
-  "novedades": "\u2022 Parches de seguridad y correcciones menores de estabilidad."
+  "novedades": "• Nuevo selector de formato flotante y moderno con scroll.\n• Nuevos procesos: Características Organolépticas, Composición por Grupo, Fórmula Marco y Grupos.\n• Selección automática para Listado de Referencia.\n• Mejoras de estabilidad y rendimiento."
 }
