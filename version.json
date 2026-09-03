@@ -1,7 +1,7 @@
 {
-  "version": "v1.1.5",
-  "exe_url": "https://github.com/Danielcastro5/bot-invima/releases/download/v1.1.5/Automatizador_INVIMA.exe",
+  "version": "v1.1.6",
+  "exe_url": "https://github.com/Danielcastro5/bot-invima/releases/download/v1.1.6/Automatizador_INVIMA.exe",
   "config_url": "",
-  "novedades": "• Nuevo selector de formato flotante y moderno con nombres completos y scroll.\n• Nuevo proceso: Información General (Grupos).\n• Nuevo proceso: Composición (Fórmula Marco).\n• Nuevo proceso: Composición (Composición por Grupo).\n• Nuevo proceso: Características Técnicas (Características Organolépticas).\n• Selección automática inteligente para Listado de Referencia.\n• Mejoras de rendimiento y estabilidad."
+  "novedades": "• Agrupación inteligente de ingredientes por grupo/fórmula marco (soporte de nombres repetidos y celdas vacías consecutivas).\n• Selección directa y robusta de 'Listado de Referencia' mediante eventos nativos JavaScript.\n• Sistema de detención segura con guardado garantizado de operaciones en curso.\n• Sistema de reintentos individuales de 3 pasos por ingrediente y grupo.\n• Corrección y refinamiento de selectores en modales de Composición y Fórmula Marco."
 }
 

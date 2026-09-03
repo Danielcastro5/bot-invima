@@ -26,7 +26,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 PUERTO_CHROME = 9222   # Puerto de depuración de Chrome
 
-VERSION_ACTUAL = "v1.1.5"
+VERSION_ACTUAL = "v1.1.6"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/Danielcastro5/bot-invima/main/version.json"
 FIREBASE_DB_URL = "https://bot-invima-licencias-default-rtdb.firebaseio.com"
 SECRET_SALT_LICENCIA = "BOT_INVIMA_SECURE_AUTH_SALT_2026_V1"
@@ -570,7 +570,7 @@ def leer_excel(ruta, app, cfg, proceso_config):
         return None
 
     encabezados = [str(c).strip() if c is not None else "" for c in crudas[0]]
-    campos_req = proceso_config.get("CAMPOS", [])
+    campos_req = proceso_config.get("CAMPOS_CABECERA", []) + proceso_config.get("CAMPOS", [])
     
     # Mapeo de columnas requeridas con soporte de alias y normalización
     mapa_columnas = {}
@@ -878,8 +878,21 @@ def llenar_campo_presentaciones(page, campo, fila, app, cfg):
 # --------------------------------------------------------------------------
 def llenar_autocompletar_composicion(page, campo, valor, timeout_ms, app):
     selector = campo["selector"]
-    target = page.locator(selector).first
     valor_norm = normalizar_texto(valor)
+
+    # Identificar el modal activo superior si existe
+    modal_activo = page.locator(".ant-modal:not([style*='display: none'])")
+    if modal_activo.count() > 0:
+        modal_top = modal_activo.last
+        target = modal_top.locator(selector).last
+        if target.count() == 0:
+            target = modal_top.locator(f".ant-form-item:has-text('{campo['columna']}') input").last
+        if target.count() == 0:
+            target = page.locator(selector).last
+    else:
+        target = page.locator(selector).last
+        if target.count() == 0:
+            target = page.locator(selector).first
 
     sugerencia_sel = campo.get("selector_sugerencia") or ".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option"
     col_name = campo["columna"].lower()
@@ -894,6 +907,10 @@ def llenar_autocompletar_composicion(page, campo, valor, timeout_ms, app):
 
     for intento_t in range(1, max_intentos_tipeo + 1):
         try:
+            try:
+                target.scroll_into_view_if_needed(timeout=1000)
+            except Exception:
+                pass
             try:
                 target.click(force=True, timeout=2000)
                 time.sleep(0.1)
@@ -964,33 +981,66 @@ def llenar_multiselect(page, campo, valor, timeout_ms, app):
         return
 
     selector = campo["selector"]
-    target = page.locator(selector).first
+    modal_activo = page.locator(".ant-modal:not([style*='display: none'])")
+    if modal_activo.count() > 0:
+        modal_top = modal_activo.last
+        target = modal_top.locator(selector).last
+        if target.count() == 0:
+            target = modal_top.locator(f".ant-form-item:has-text('{campo['columna']}') input").last
+        if target.count() == 0:
+            target = modal_top.locator(f".ant-form-item:has-text('{campo['columna']}') .ant-select-selector").last
+        if target.count() == 0:
+            target = page.locator(selector).last
+    else:
+        modal_top = page
+        target = page.locator(selector).last
+
     sugerencia_sel = campo.get("selector_sugerencia") or ".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option"
 
     for idx, item in enumerate(items):
         item_norm = normalizar_texto(item)
         app.log(f"      ➔ Seleccionando función ({idx+1}/{len(items)}): '{item}'", "detail")
 
+        # Asegurar foco haciendo clic en el selector visual de la fila
+        try:
+            modal_top.locator(f".ant-form-item:has-text('{campo['columna']}') .ant-select-selector").last.click(force=True, timeout=1500)
+            time.sleep(0.3)
+        except Exception:
+            try:
+                target.click(force=True, timeout=1500)
+                time.sleep(0.3)
+            except Exception:
+                pass
+
         for intento_t in range(1, 3):
             try:
                 try:
-                    target.click(force=True, timeout=2000)
+                    target.fill("")
+                    time.sleep(0.1)
                 except Exception:
                     pass
 
-                target.fill(item)
+                target.type(str(item), delay=60)
                 time.sleep(0.4)
 
                 timeout_intento = min(3500, timeout_ms)
                 page.wait_for_selector(sugerencia_sel, timeout=timeout_intento)
                 break
             except PWTimeout:
-                target.fill("")
-                time.sleep(0.3)
-                target.type(item, delay=80)
+                try:
+                    target.fill("")
+                    time.sleep(0.2)
+                    target.type(item, delay=80)
+                except Exception:
+                    pass
 
-        opciones = page.locator(sugerencia_sel)
+        dropdown_activo = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)").last
+        opciones = dropdown_activo.locator(".ant-select-item-option, div[role='option'], .ant-select-item-option-content")
         total = opciones.count()
+        if total == 0:
+            opciones = page.locator(sugerencia_sel)
+            total = opciones.count()
+
         if total == 0:
             app.log(f"      ⚠️ No se hallaron opciones para '{item}'", "warning")
             continue
@@ -999,7 +1049,7 @@ def llenar_multiselect(page, campo, valor, timeout_ms, app):
         for k in range(total):
             txt_opcion = opciones.nth(k).inner_text()
             if normalizar_texto(txt_opcion) == item_norm:
-                opciones.nth(k).click(force=True)
+                hacer_clic_opcion(opciones.nth(k))
                 encontrado = True
                 time.sleep(0.4)
                 break
@@ -1009,13 +1059,13 @@ def llenar_multiselect(page, campo, valor, timeout_ms, app):
                 txt_opcion = opciones.nth(k).inner_text()
                 txt_norm = normalizar_texto(txt_opcion)
                 if txt_norm.startswith(item_norm) or item_norm in txt_norm:
-                    opciones.nth(k).click(force=True)
+                    hacer_clic_opcion(opciones.nth(k))
                     encontrado = True
                     time.sleep(0.4)
                     break
 
         if not encontrado and total > 0:
-            opciones.first.click(force=True)
+            hacer_clic_opcion(opciones.first)
             time.sleep(0.4)
 
     try:
@@ -1026,20 +1076,33 @@ def llenar_multiselect(page, campo, valor, timeout_ms, app):
 
 def llenar_select(page, campo, valor, timeout_ms, app):
     valor_norm = normalizar_texto(valor)
-    
+    col_nombre = campo.get("columna", "")
+    selector_config = campo.get("selector", "")
+
+    modal_activo = page.locator(".ant-modal:not([style*='display: none'])")
+    if modal_activo.count() > 0:
+        modal_top = modal_activo.last
+    else:
+        modal_top = page
+
     targets_posibles = [
-        page.locator(".ant-modal-body .ant-form-item:has-text('Tipo') .ant-select-selector").first,
-        page.locator(".ant-modal-body .ant-form-item:has-text('Tipo') input").first,
-        page.locator(".ant-modal-body .ant-form-item:has-text('Tipo')").first,
-        page.locator(campo["selector"]).first
+        modal_top.locator(selector_config).last if selector_config else None,
+        modal_top.locator(f".ant-form-item:has-text('{col_nombre}') .ant-select-selector").last,
+        modal_top.locator(f".ant-form-item:has-text('{col_nombre}') input").last,
+        modal_top.locator(f".ant-form-item:has-text('{col_nombre}')").last,
+        page.locator(selector_config).last if selector_config else None,
+        page.locator(selector_config).first if selector_config else None,
     ]
 
     dropdown_sel = ".ant-select-dropdown:not(.ant-select-dropdown-hidden)"
 
     menu_abierto = False
     for target in targets_posibles:
+        if target is None:
+            continue
         try:
             if target.count() > 0:
+                target.scroll_into_view_if_needed(timeout=1000)
                 target.click(force=True, timeout=2000)
                 time.sleep(0.5)
                 if page.locator(dropdown_sel).count() > 0:
@@ -1050,7 +1113,7 @@ def llenar_select(page, campo, valor, timeout_ms, app):
 
     if not menu_abierto:
         try:
-            page.locator(".ant-modal-body .ant-form-item:has-text('Tipo')").first.click(force=True)
+            modal_top.locator(f".ant-form-item:has-text('{col_nombre}')").last.click(force=True)
             time.sleep(0.6)
         except Exception:
             pass
@@ -1062,13 +1125,13 @@ def llenar_select(page, campo, valor, timeout_ms, app):
     total_opciones = opciones.count()
 
     if total_opciones == 0:
-        opciones = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option")
+        opciones = page.locator(dropdown_sel + " .ant-select-item-option")
         total_opciones = opciones.count()
 
     if total_opciones == 0:
         raise ValueError(f"No se desplegaron opciones en el menú para '{valor}'")
 
-    app.log(f"      🔍 Se encontraron {total_opciones} opciones en el menú desplegable activo para '{valor}'.", "detail")
+    app.log(f"      🔍 Se encontraron {total_opciones} opciones en el menú desplegable para '{valor}'.", "detail")
 
     for k in range(total_opciones):
         txt_opcion = opciones.nth(k).inner_text()
@@ -1101,9 +1164,16 @@ def llenar_select(page, campo, valor, timeout_ms, app):
 
 
 def llenar_switch(page, campo, valor, app):
-    target = page.locator(campo["selector"]).first
-    if target.count() == 0 or not target.is_visible():
-        target = page.locator("#isNanomaterial, button#isNanomaterial, .ant-modal-body button.ant-switch, button.ant-switch").first
+    modal_activo = page.locator(".ant-modal:not([style*='display: none'])")
+    if modal_activo.count() > 0:
+        modal_top = modal_activo.last
+        target = modal_top.locator(campo["selector"]).last
+        if target.count() == 0:
+            target = modal_top.locator("#isNanomaterial, button#isNanomaterial, button.ant-switch").last
+    else:
+        target = page.locator(campo["selector"]).last
+        if target.count() == 0:
+            target = page.locator("#isNanomaterial, button#isNanomaterial, .ant-modal-body button.ant-switch, button.ant-switch").last
 
     if target.count() == 0:
         app.log(f"   ⚠️ No se encontró el interruptor para '{campo['columna']}'", "warning")
@@ -1134,49 +1204,176 @@ def llenar_switch(page, campo, valor, app):
         app.log(f"   ⚠️ No se pudo cambiar el interruptor '{campo['columna']}': {e}", "warning")
 
 
-def llenar_campo_composicion(page, campo, fila, app, cfg):
-    col_nombre = campo["columna"]
-    valor = fila.get(col_nombre, "")
-    es_listado_ref = "listado" in col_nombre.lower() and "referencia" in col_nombre.lower()
+def _seleccionar_primera_opcion_listado_referencia(page, campo, app, timeout_ms=6000):
+    # 1. Obtener el modal activo superior
+    modal_activo = page.locator(".ant-modal:not([style*='display: none'])")
+    modal_top = modal_activo.last if modal_activo.count() > 0 else page
 
-    if not valor or str(valor).strip() == "":
-        if not es_listado_ref:
-            return
+    # 2. Localizadores específicos del input de Listado de referencia
+    candidatos = [
+        modal_top.locator(".ant-form-item:has-text('Listado') input").last,
+        modal_top.locator(".ant-form-item:has-text('referencia') input").last,
+        modal_top.locator(".ant-form-item:has-text('Referencia') input").last,
+        modal_top.locator("form > div > div:nth-child(4) input").last,
+        modal_top.locator("#referenceList, input[id*='reference'], input[id*='Reference']").last,
+        modal_top.locator(".ant-form-item:has-text('Listado') .ant-select-selector").last,
+        modal_top.locator(".ant-form-item:has-text('referencia') .ant-select-selector").last,
+        modal_top.locator("form > div > div:nth-child(4) .ant-select-selector").last,
+        page.locator(".ant-modal-body .ant-form-item:has-text('Listado') input").last,
+        page.locator(campo.get("selector", "")).last,
+    ]
 
-        # Si 'Listado de referencia' está vacío en Excel, seleccionar la primera opción disponible si el campo es visible
-        target = page.locator(campo["selector"]).first
+    target = None
+    for cand in candidatos:
         try:
-            if target.count() == 0 or not target.is_visible():
-                return
+            if cand.count() > 0:
+                target = cand
+                break
         except Exception:
-            return
+            continue
 
-        app.log(f"   ➔ {col_nombre}: (Vacío en Excel -> Seleccionando primera opción disponible)", "detail")
-        try:
-            target.click(force=True, timeout=2000)
-            time.sleep(0.3)
-            sugerencia_sel = campo.get("selector_sugerencia") or ".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option"
-            page.wait_for_selector(sugerencia_sel, timeout=3000)
-            dropdown_activo = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)").last
-            opciones = dropdown_activo.locator(".ant-select-item-option, div[role='option'], .ant-select-item-option-content")
-            if opciones.count() > 0:
-                txt_primera = opciones.first.inner_text().strip()
-                app.log(f"      🎯 Seleccionada primera opción: '{txt_primera}'", "detail")
-                hacer_clic_opcion(opciones.first)
-                time.sleep(0.4)
-                return
-        except Exception as e_list:
-            app.log(f"      ℹ️ No se requirió listado de referencia: {e_list}", "detail")
-            return
+    if not target or target.count() == 0:
+        app.log("   ⚠️ No se encontró el campo 'Listado de referencia' en el formulario activo.", "warning")
+        raise Exception("El campo obligatorio 'Listado de referencia' no se encontró en el modal actual.")
 
-    target = page.locator(campo["selector"]).first
+    # Si el target no es input directo, buscar su input interno
     try:
-        if target.count() == 0 or not target.is_visible():
-            app.log(f"   ℹ️ Campo '{campo['columna']}' no está visible para este Tipo, omitiendo...", "info")
-            return
+        if target.evaluate("el => el.tagName.toLowerCase()") != "input":
+            inp_hijo = target.locator("input").first
+            if inp_hijo.count() > 0:
+                target = inp_hijo
     except Exception:
         pass
 
+    app.log("   ➔ Listado de referencia: (Vacío en Excel -> Disparando búsqueda y seleccionando primera opción)...", "detail")
+
+    # Función auxiliar para hacer clic JavaScript en la primera opción visible del dropdown
+    def intentar_clic_js():
+        return page.evaluate("""() => {
+            const dropdowns = Array.from(document.querySelectorAll('.ant-select-dropdown')).filter(d => {
+                const style = window.getComputedStyle(d);
+                return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+            });
+            if (dropdowns.length === 0) return null;
+            const activeDd = dropdowns[dropdowns.length - 1];
+            const opt = activeDd.querySelector('.ant-select-item-option');
+            if (opt) {
+                const text = (opt.innerText || opt.textContent || '').trim();
+                opt.scrollIntoView();
+                const content = opt.querySelector('.ant-select-item-option-content') || opt;
+                content.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+                content.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+                content.click();
+                return text;
+            }
+            return null;
+        }""")
+
+    # 3. Primer intento: Clic en el campo y flecha abajo
+    try:
+        target.scroll_into_view_if_needed(timeout=800)
+        target.click(force=True, timeout=1000)
+        time.sleep(0.3)
+        page.keyboard.press("ArrowDown")
+        time.sleep(0.3)
+        res_js = intentar_clic_js()
+        if res_js:
+            app.log(f"      🎯 Seleccionada opción de referencia: '{res_js}'", "detail")
+            time.sleep(0.6)
+            return True
+    except Exception:
+        pass
+
+    # 4. Segundo intento: Tipear letras clave para disparar la consulta al catálogo
+    terminos = ["a", "d", "c", "i", "e", "CosIng", " "]
+    for termino in terminos:
+        try:
+            target.click(force=True, timeout=1000)
+            time.sleep(0.1)
+            target.fill("")
+            time.sleep(0.1)
+            target.type(termino, delay=60)
+            time.sleep(0.6)
+
+            # Apenas escribe, chequear si el dropdown se abrió y hacer clic JS
+            for _ in range(5):
+                res_js = intentar_clic_js()
+                if res_js:
+                    app.log(f"      🎯 Seleccionada opción de referencia: '{res_js}'", "detail")
+                    time.sleep(0.8)
+                    return True
+                time.sleep(0.3)
+
+            # Si no hizo clic JS, probar inmediatamente ArrowDown y Enter sin volver a clickear el input
+            page.keyboard.press("ArrowDown")
+            time.sleep(0.2)
+            page.keyboard.press("Enter")
+            time.sleep(0.6)
+
+            # Verificar si se seleccionó algo en el input
+            val_input = target.evaluate("el => el.value") or ""
+            if val_input and val_input != termino:
+                app.log(f"      🎯 Opción confirmada por teclado: '{val_input}'", "detail")
+                time.sleep(0.4)
+                return True
+        except Exception:
+            continue
+
+    # 5. Si ninguna búsqueda funcionó, verificar si hay opciones visibles y cliquearlas con Playwright
+    try:
+        opciones_visibles = page.locator(".ant-select-dropdown:visible .ant-select-item-option:visible, .ant-select-dropdown:visible .ant-select-item-option-content:visible")
+        if opciones_visibles.count() > 0:
+            txt_opc = opciones_visibles.first.inner_text().strip()
+            app.log(f"      🎯 Clic Playwright en opción visible: '{txt_opc}'", "detail")
+            opciones_visibles.first.click(force=True)
+            time.sleep(0.8)
+            return True
+    except Exception:
+        pass
+
+    raise Exception("El campo 'Listado de referencia' es obligatorio y no se pudo seleccionar ninguna opción de la lista.")
+
+
+def llenar_campo_composicion(page, campo, fila, app, cfg):
+    col_nombre = campo["columna"]
+    valor = fila.get(col_nombre, "")
+    if not valor:
+        for a in campo.get("alias", []):
+            if a in fila and fila[a]:
+                valor = fila[a]
+                break
+
+    es_listado_ref = "listado" in col_nombre.lower() or "referencia" in col_nombre.lower()
+    timeout_ms = getattr(cfg, "TIMEOUT_SEGUNDOS", 15) * 1000
+
+    if not valor or str(valor).strip() == "":
+        if es_listado_ref:
+            _seleccionar_primera_opcion_listado_referencia(page, campo, app, timeout_ms)
+        return
+
+    # Buscar target en el modal activo superior
+    modal_activo = page.locator(".ant-modal:not([style*='display: none'])")
+    if modal_activo.count() > 0:
+        modal_top = modal_activo.last
+        target = modal_top.locator(campo["selector"]).last
+        if target.count() == 0:
+            target = modal_top.locator(f".ant-form-item:has-text('{col_nombre}') input").last
+        if target.count() == 0:
+            target = modal_top.locator(f".ant-form-item:has-text('{col_nombre}') .ant-select-selector").last
+        if target.count() == 0:
+            target = page.locator(campo["selector"]).last
+    else:
+        modal_top = page
+        target = page.locator(campo["selector"]).last
+
+    if target.count() == 0:
+        target = page.locator(campo["selector"]).first
+
+    if target.count() == 0:
+        app.log(f"   ℹ️ Campo '{campo['columna']}' no visible/encontrado, omitiendo...", "info")
+        return
+
+    # Esperar si el elemento está deshabilitado
     try:
         if target.is_disabled():
             app.log(f"   ⏳ Esperando a que el portal desbloquee '{campo['columna']}'...", "detail")
@@ -1185,7 +1382,6 @@ def llenar_campo_composicion(page, campo, fila, app, cfg):
         pass
 
     app.log(f"   ➔ {campo['columna']}: '{valor}'", "detail")
-    timeout_ms = getattr(cfg, "TIMEOUT_SEGUNDOS", 15) * 1000
 
     try:
         if campo["tipo"] == "texto":
@@ -1265,7 +1461,7 @@ def ejecutar_proceso_formula_marco(page, proceso_cfg, filas, app, cfg, timeout_m
     selector_guardar_formula = proceso_cfg.get("BOTON_GUARDAR_FORMULA", ".ant-modal-footer button.ant-btn-primary, button:has-text('Guardar')")
     campos_ingrediente = proceso_cfg.get("CAMPOS", [])
 
-    # Detectar el nombre real de la columna en el Excel (ignorando tildes y mayúsculas)
+    # Detectar el nombre real de la columna en el Excel
     col_nombre_formula_real = col_nombre_formula
     if filas:
         for k in filas[0].keys():
@@ -1303,87 +1499,402 @@ def ejecutar_proceso_formula_marco(page, proceso_cfg, filas, app, cfg, timeout_m
 
         app.log(f"\n🏷️ [Fórmula {idx_f} de {total_formulas}] '{nombre_formula}' ({len(lista_ingredientes)} ingredientes)...", "header")
 
-        try:
-            # 1. Abrir modal principal de Fórmula Marco
-            app.log(f"   🖱️ Abriendo ventana de Fórmula Marco...", "detail")
-            page.locator(selector_abrir_formula).first.click(timeout=timeout_ms)
-            page.wait_for_selector(selector_modal_formula, state="visible", timeout=timeout_ms)
-            time.sleep(0.4)
-
-            # 2. Escribir nombre de la fórmula marco
-            app.log(f"   ✍️ Asignando nombre: '{nombre_formula}'", "detail")
+        # 1. Abrir modal principal de Fórmula Marco con hasta 3 intentos
+        modal_abierto = False
+        for intento_f in range(1, 4):
             try:
+                if intento_f > 1:
+                    app.log(f"   🔄 Intento {intento_f}/3 para abrir Fórmula '{nombre_formula}'...", "warning")
+                    try:
+                        page.keyboard.press("Escape")
+                        time.sleep(0.4)
+                    except Exception:
+                        pass
+
+                app.log(f"   🖱️ Abriendo ventana de Fórmula Marco...", "detail")
+                btn_abrir_form = page.locator(selector_abrir_formula).first
+                try:
+                    btn_abrir_form.scroll_into_view_if_needed(timeout=1000)
+                    btn_abrir_form.click(force=True, timeout=3000)
+                except Exception:
+                    try:
+                        btn_abrir_form.evaluate("el => el.click()")
+                    except Exception:
+                        page.locator("button:has-text('Fórmula marco'), button:has-text('Formula marco'), button:has-text('Agregar fórmula'), button:has-text('Adicionar fórmula')").first.click(force=True, timeout=3000)
+                
+                page.wait_for_selector(selector_modal_formula, state="visible", timeout=timeout_ms)
+                time.sleep(0.4)
+
+                app.log(f"   ✍️ Asignando nombre: '{nombre_formula}'", "detail")
                 campo_nombre = page.locator(selector_campo_nombre).first
                 campo_nombre.click(force=True, timeout=3000)
                 campo_nombre.fill(nombre_formula)
-            except Exception as e_nom:
-                app.log(f"   ⚠️ No se pudo asignar nombre a la fórmula: {e_nom}", "warning")
-            time.sleep(0.3)
+                time.sleep(0.3)
+                modal_abierto = True
+                break
+            except Exception as e_f:
+                app.log(f"   ⚠️ Error en intento {intento_f}/3 de abrir fórmula: {e_f}", "warning")
+                if intento_f == 3:
+                    errores += len(lista_ingredientes)
+                    lista_errores.append({
+                        "linea_excel": lista_ingredientes[0]["__linea_excel__"] if lista_ingredientes else 0,
+                        "columna_afectada": "Cabecera Fórmula Marco",
+                        "valor_excel": nombre_formula,
+                        "motivo": str(e_f)
+                    })
 
-            # 3. Llenar cada uno de los ingredientes en el submodal
-            for num_ing, fila_ing in enumerate(lista_ingredientes, start=1):
-                if app.debe_detener:
-                    break
+        if not modal_abierto:
+            continue
 
-                while app.debe_pausar and not app.debe_detener:
-                    time.sleep(0.3)
+        # 2. Llenar cada uno de los ingredientes en el submodal con 3 intentos individuales
+        for num_ing, fila_ing in enumerate(lista_ingredientes, start=1):
+            while app.debe_pausar and not app.debe_detener:
+                time.sleep(0.3)
 
-                ingredientes_procesados += 1
-                app.actualizar_progreso(ingredientes_procesados, total_ingredientes)
+            ingredientes_procesados += 1
+            app.actualizar_progreso(ingredientes_procesados, total_ingredientes)
 
-                linea_ex = fila_ing["__linea_excel__"]
-                app.log(f"   🧪 Ingrediente {num_ing}/{len(lista_ingredientes)} (Línea Excel #{linea_ex})...", "detail")
+            linea_ex = fila_ing["__linea_excel__"]
+            ing_nombre = fila_ing.get("Ingrediente / Mezcla") or fila_ing.get("Ingrediente") or f"#{num_ing}"
+            app.log(f"   🧪 Ingrediente {num_ing}/{len(lista_ingredientes)}: '{ing_nombre}' (Línea Excel #{linea_ex})...", "detail")
 
-                # Clic en "Añadir ingrediente"
-                app.log(f"   🖱️ Clic en 'Añadir ingrediente'...", "detail")
-                btn_anadir = page.locator(selector_anadir_ing).first
+            exito_ing = False
+            ultimo_err_ing = ""
+
+            for intento_ing in range(1, 4):
+                if intento_ing > 1:
+                    app.log(f"      🔄 INTENTO {intento_ing}/3 para ingrediente '{ing_nombre}' (Línea #{linea_ex})...", "warning")
+                    try:
+                        page.keyboard.press("Escape")
+                        time.sleep(0.4)
+                    except Exception:
+                        pass
+
                 try:
-                    btn_anadir.click(force=True, timeout=timeout_ms)
-                except Exception:
-                    page.locator("button:has-text('Añadir'), button:has-text('Agregar'), button:has-text('Adicionar')").first.click(force=True)
+                    app.log(f"      🖱️ Clic en 'Añadir ingrediente'...", "detail")
+                    btn_anadir = page.locator(selector_anadir_ing).first
+                    try:
+                        btn_anadir.scroll_into_view_if_needed(timeout=1000)
+                        btn_anadir.click(force=True, timeout=timeout_ms)
+                    except Exception:
+                        page.locator("button:has-text('Añadir'), button:has-text('Agregar'), button:has-text('Adicionar')").first.click(force=True)
 
-                time.sleep(0.5)
+                    time.sleep(0.5)
 
-                # Llenar campos de ingrediente (reutilizando la lógica probada de composición)
-                for campo in campos_ingrediente:
-                    llenar_campo(page, campo, fila_ing, linea_ex, app, cfg, "Composición")
+                    for campo in campos_ingrediente:
+                        llenar_campo(page, campo, fila_ing, linea_ex, app, cfg, "Composición")
 
-                # Guardar ingrediente (en el modal de ingrediente)
-                app.log(f"   💾 Guardando ingrediente...", "detail")
-                btn_guardar_ing = page.locator(selector_guardar_ing).last
-                btn_guardar_ing.click(force=True, timeout=timeout_ms)
-                time.sleep(0.8)
+                    app.log(f"      💾 Guardando ingrediente...", "detail")
+                    btn_guardar_ing = page.locator(selector_guardar_ing).last
+                    btn_guardar_ing.click(force=True, timeout=timeout_ms)
+                    time.sleep(0.8)
 
-                exitosos += 1
-                app.incrementar_exitos()
+                    exito_ing = True
+                    exitosos += 1
+                    app.incrementar_exitos()
+                    app.log(f"      ✅ Ingrediente '{ing_nombre}' registrado con éxito.", "success")
+                    break
+                except Exception as e_ing:
+                    ultimo_err_ing = str(e_ing)
+                    app.log(f"      ⚠️ Intento {intento_ing}/3 falló: {e_ing}", "warning")
 
-            # 4. Guardar la fórmula marco completa
-            if not app.debe_detener:
-                app.log(f"   💾 Guardando Fórmula Marco '{nombre_formula}'...", "detail")
-                btn_guardar_form = page.locator(selector_guardar_formula).first
-                btn_guardar_form.click(force=True, timeout=timeout_ms)
-                time.sleep(1.0)
-                app.log(f"   ✨ Fórmula Marco '{nombre_formula}' guardada exitosamente.", "success")
+            if not exito_ing:
+                errores += 1
+                app.incrementar_errores()
+                app.log(f"      ❌ ERROR DEFINITIVO en Ingrediente '{ing_nombre}' tras 3 intentos.", "error")
+                lista_errores.append({
+                    "linea_excel": linea_ex,
+                    "columna_afectada": "Registro Ingrediente Fórmula Marco",
+                    "valor_excel": ing_nombre,
+                    "motivo": ultimo_err_ing
+                })
 
-        except Exception as e:
-            errores += 1
-            app.incrementar_errores()
-            app.log(f"   ❌ Error en Fórmula Marco '{nombre_formula}': {e}", "error")
-            lista_errores.append({
-                "linea_excel": lista_ingredientes[0]["__linea_excel__"] if lista_ingredientes else 0,
-                "columna_afectada": "Estructura Fórmula Marco",
-                "valor_excel": nombre_formula,
-                "motivo": str(e)
-            })
-            try:
-                page.keyboard.press("Escape")
-                time.sleep(0.4)
-                page.keyboard.press("Escape")
-            except Exception:
-                pass
+            # Si el usuario presionó Detener durante el llenado, aseguramos este ingrediente y guardamos la fórmula
+            if app.debe_detener:
+                app.log(f"   🛑 Detención solicitada: Ingrediente #{num_ing} asegurado. Procediendo a guardar Fórmula '{nombre_formula}'...", "warning")
+                break
+
+        # 3. Guardar SIEMPRE la fórmula marco para asegurar los datos en el portal
+        try:
+            app.log(f"   💾 Guardando Fórmula Marco '{nombre_formula}'...", "detail")
+            btn_guardar_form = page.locator(selector_guardar_formula).first
+            btn_guardar_form.click(force=True, timeout=timeout_ms)
+            time.sleep(1.0)
+            app.log(f"   ✨ Fórmula Marco '{nombre_formula}' guardada exitosamente.", "success")
+        except Exception as e_form_save:
+            app.log(f"   ⚠️ Error al guardar Fórmula Marco '{nombre_formula}': {e_form_save}", "warning")
+
+        if app.debe_detener:
+            app.log(f"\n⏹️ Operación '{nombre_formula}' guardada exitosamente. Proceso detenido de forma segura.", "warning")
+            break
 
     if lista_errores:
         guardar_reporte_errores(ruta_excel, "Fórmula Marco", lista_errores)
+
+    return exitosos, errores
+
+
+# --------------------------------------------------------------------------
+#  Manejador Especializado para Composición por Grupo (Grupo + Fórmula Marco + Ingredientes)
+# --------------------------------------------------------------------------
+def ejecutar_proceso_composicion_grupo(page, proceso_cfg, filas, app, cfg, timeout_ms, ruta_excel):
+    from itertools import groupby
+
+    selector_abrir = proceso_cfg.get("BOTON_ABRIR_MODAL", "")
+    selector_modal_principal = proceso_cfg.get("SELECTOR_MODAL_PRINCIPAL", ".ant-modal-wrap, .ant-modal-content")
+    boton_accion_previa = proceso_cfg.get("BOTON_ACCION_PREVIA", "")
+    campos_cabecera = proceso_cfg.get("CAMPOS_CABECERA", [])
+    selector_anadir_ing = proceso_cfg.get("BOTON_ANADIR_INGREDIENTE", "button:has-text('Añadir ingrediente'), button:has-text('Agregar ingrediente'), button:has-text('Adicionar ingrediente')")
+    selector_modal_ing = proceso_cfg.get("SELECTOR_MODAL_INGREDIENTE", ".ant-modal-wrap, .ant-modal-content")
+    selector_guardar_ing = proceso_cfg.get("BOTON_GUARDAR_INGREDIENTE", ".ant-modal-footer button.ant-btn-primary, button:has-text('Guardar'), button:has-text('Aceptar')")
+    selector_guardar_grupo = proceso_cfg.get("BOTON_GUARDAR_GRUPO", ".ant-modal-footer button.ant-btn-primary, button:has-text('Guardar'), button:has-text('Aceptar')")
+    campos_ingrediente = proceso_cfg.get("CAMPOS", [])
+
+    # Determinar la clave de agrupación (Grupo / Nombre del grupo)
+    col_grupo = "Grupo"
+    if filas:
+        for k in filas[0].keys():
+            if k == "__linea_excel__": continue
+            if "grupo" in normalizar_texto(k):
+                col_grupo = k
+                break
+
+    # Agrupación inteligente para Composición por Grupo:
+    # Soporta tanto si repiten el nombre del Grupo en cada fila como si dejan la celda en blanco hacia abajo (Forward Fill)
+    from collections import OrderedDict
+    grupos_map = OrderedDict()
+    ultimo_grupo = None
+
+    for fila in filas:
+        val_g = (fila.get(col_grupo) or "").strip()
+        if val_g:
+            ultimo_grupo = val_g
+        elif not ultimo_grupo:
+            ultimo_grupo = "Grupo Principal"
+
+        if ultimo_grupo not in grupos_map:
+            grupos_map[ultimo_grupo] = []
+        grupos_map[ultimo_grupo].append(fila)
+
+    grupos_lista = list(grupos_map.items())
+
+    total_grupos = len(grupos_lista)
+    total_ingredientes = len(filas)
+    ingredientes_procesados = 0
+    app.actualizar_progreso(0, total_ingredientes)
+    app.log(f"📋 Se detectaron {total_grupos} grupos de composición para procesar ({total_ingredientes} ingredientes en total).", "info")
+
+    exitosos = 0
+    errores = 0
+    lista_errores = []
+
+    for idx_g, (nombre_grupo, lista_ingredientes) in enumerate(grupos_lista, start=1):
+        if app.debe_detener:
+            app.log("\n⏹️ Proceso detenido de forma segura antes de iniciar el siguiente grupo.", "warning")
+            break
+
+        while app.debe_pausar and not app.debe_detener:
+            time.sleep(0.3)
+
+        if app.debe_detener:
+            app.log("\n⏹️ Proceso detenido de forma segura antes de iniciar el siguiente grupo.", "warning")
+            break
+
+        app.log(f"\n👥 [Grupo {idx_g} de {total_grupos}] '{nombre_grupo}' ({len(lista_ingredientes)} ingredientes)...", "header")
+
+        # 1. Abrir y configurar Grupo con hasta 3 intentos
+        modal_grupo_abierto = False
+        for intento_g in range(1, 4):
+            try:
+                if intento_g > 1:
+                    app.log(f"   🔄 INTENTO {intento_g}/3 para inicializar Grupo '{nombre_grupo}'...", "warning")
+                    try:
+                        page.keyboard.press("Escape")
+                        time.sleep(0.4)
+                        page.keyboard.press("Escape")
+                        time.sleep(0.4)
+                    except Exception:
+                        pass
+
+                app.log(f"   🖱️ Abriendo ventana 'Composición por Grupo'...", "detail")
+                btn_abrir_grp = page.locator(selector_abrir).first
+                try:
+                    btn_abrir_grp.scroll_into_view_if_needed(timeout=1000)
+                    btn_abrir_grp.click(force=True, timeout=3000)
+                except Exception:
+                    try:
+                        btn_abrir_grp.evaluate("el => el.click()")
+                    except Exception:
+                        page.locator("button:has-text('Composición por Grupo'), button:has-text('Composicion por Grupo'), button:has-text('Añadir Composición'), button:has-text('Agregar Composición')").first.click(force=True, timeout=3000)
+                
+                page.wait_for_selector(selector_modal_principal, state="visible", timeout=timeout_ms)
+                time.sleep(0.5)
+
+                # Clic en 'Usar Fórmula Marco'
+                if boton_accion_previa:
+                    app.log(f"   🖱️ Seleccionando opción 'Usar Fórmula Marco'...", "detail")
+                    time.sleep(0.4)
+                    clic_exitoso = False
+                    candidatos = [
+                        "button:has-text('Usar Fórmula Marco')",
+                        "button:has-text('Usar fórmula marco')",
+                        "button:has-text('Usar Formula Marco')",
+                        "button:has-text('Usar formula marco')",
+                        "button:has-text('Fórmula Marco')",
+                        "button:has-text('Formula Marco')",
+                        "button:has-text('Marco')",
+                        ".ant-modal-confirm-body button",
+                        ".ant-modal-body button",
+                        boton_accion_previa
+                    ]
+                    for cand in candidatos:
+                        try:
+                            loc = page.locator(cand)
+                            cnt = loc.count()
+                            if cnt > 0:
+                                for idx_btn in range(cnt):
+                                    btn_elem = loc.nth(idx_btn)
+                                    txt_btn = btn_elem.inner_text().strip()
+                                    if "marco" in txt_btn.lower() or "formula" in txt_btn.lower():
+                                        app.log(f"   🎯 Clic en opción: '{txt_btn}'", "detail")
+                                        btn_elem.scroll_into_view_if_needed(timeout=1000)
+                                        btn_elem.click(force=True, timeout=3000)
+                                        clic_exitoso = True
+                                        break
+                                if clic_exitoso:
+                                    break
+                                if cand == boton_accion_previa:
+                                    loc.first.click(force=True, timeout=3000)
+                                    clic_exitoso = True
+                                    break
+                        except Exception:
+                            continue
+
+                    if not clic_exitoso:
+                        page.locator(boton_accion_previa).first.click(force=True, timeout=timeout_ms)
+
+                    time.sleep(0.8)
+
+                # Llenar campos de cabecera del grupo (Grupo, Fórmula Marco)
+                primera_fila = lista_ingredientes[0]
+                linea_cabecera = primera_fila["__linea_excel__"]
+                for campo_c in campos_cabecera:
+                    val = primera_fila.get(campo_c["columna"], "")
+                    if not val:
+                        for a in campo_c.get("alias", []):
+                            if a in primera_fila and primera_fila[a]:
+                                val = primera_fila[a]
+                                break
+                    if val:
+                        app.log(f"   📝 Asignando {campo_c['columna']}: '{val}'", "detail")
+                        llenar_campo(page, campo_c, primera_fila, linea_cabecera, app, cfg, "Composición")
+                        time.sleep(0.4)
+
+                modal_grupo_abierto = True
+                break
+
+            except Exception as e_grp:
+                app.log(f"   ⚠️ Intento {intento_g}/3 falló al inicializar Grupo: {e_grp}", "warning")
+                if intento_g == 3:
+                    errores += len(lista_ingredientes)
+                    app.log(f"   ❌ ERROR DEFINITIVO al inicializar Grupo '{nombre_grupo}' tras 3 intentos.", "error")
+                    lista_errores.append({
+                        "linea_excel": lista_ingredientes[0]["__linea_excel__"] if lista_ingredientes else 0,
+                        "columna_afectada": "Cabecera Composición por Grupo",
+                        "valor_excel": nombre_grupo,
+                        "motivo": str(e_grp)
+                    })
+
+        if not modal_grupo_abierto:
+            continue
+
+        # 2. Añadir cada ingrediente del grupo con sistema de 3 reintentos individuales
+        for num_ing, fila_ing in enumerate(lista_ingredientes, start=1):
+            while app.debe_pausar and not app.debe_detener:
+                time.sleep(0.3)
+
+            ingredientes_procesados += 1
+            app.actualizar_progreso(ingredientes_procesados, total_ingredientes)
+
+            linea_ex = fila_ing["__linea_excel__"]
+            ing_nombre = fila_ing.get("Ingrediente / Mezcla") or fila_ing.get("Ingrediente") or f"#{num_ing}"
+            app.log(f"   🧪 Ingrediente {num_ing}/{len(lista_ingredientes)}: '{ing_nombre}' (Línea Excel #{linea_ex})...", "detail")
+
+            exito_ing = False
+            ultimo_err_ing = ""
+
+            for intento_ing in range(1, 4):
+                if intento_ing > 1:
+                    app.log(f"      🔄 INTENTO {intento_ing}/3 para ingrediente '{ing_nombre}' (Línea #{linea_ex})...", "warning")
+                    try:
+                        page.keyboard.press("Escape")
+                        time.sleep(0.4)
+                    except Exception:
+                        pass
+
+                try:
+                    app.log(f"      🖱️ Clic en 'Añadir ingrediente'...", "detail")
+                    btn_anadir = page.locator(selector_anadir_ing).first
+                    try:
+                        btn_anadir.scroll_into_view_if_needed(timeout=1000)
+                        btn_anadir.click(force=True, timeout=timeout_ms)
+                    except Exception:
+                        page.locator("button:has-text('Añadir ingrediente'), button:has-text('Agregar ingrediente'), button:has-text('Adicionar ingrediente'), button:has-text('Añadir'), button:has-text('Agregar')").first.click(force=True)
+
+                    time.sleep(0.6)
+
+                    # Llenar campos de ingrediente
+                    for campo in campos_ingrediente:
+                        llenar_campo(page, campo, fila_ing, linea_ex, app, cfg, "Composición")
+
+                    # Guardar ingrediente (en el sub-modal de ingrediente)
+                    app.log(f"      💾 Guardando ingrediente...", "detail")
+                    btn_guardar_ing = page.locator(selector_guardar_ing).last
+                    btn_guardar_ing.click(force=True, timeout=timeout_ms)
+                    time.sleep(0.8)
+
+                    exito_ing = True
+                    exitosos += 1
+                    app.incrementar_exitos()
+                    app.log(f"      ✅ Ingrediente '{ing_nombre}' registrado con éxito.", "success")
+                    break
+
+                except Exception as e_ing:
+                    ultimo_err_ing = str(e_ing)
+                    app.log(f"      ⚠️ Intento {intento_ing}/3 falló: {e_ing}", "warning")
+
+            if not exito_ing:
+                errores += 1
+                app.incrementar_errores()
+                app.log(f"      ❌ ERROR DEFINITIVO en Ingrediente '{ing_nombre}' (Línea #{linea_ex}) tras 3 intentos.", "error")
+                lista_errores.append({
+                    "linea_excel": linea_ex,
+                    "columna_afectada": "Registro Ingrediente",
+                    "valor_excel": ing_nombre,
+                    "motivo": ultimo_err_ing
+                })
+
+            # Si el usuario presionó Detener durante el llenado, aseguramos este ingrediente y guardamos el grupo completo
+            if app.debe_detener:
+                app.log(f"   🛑 Detención solicitada: Ingrediente #{num_ing} asegurado. Procediendo a guardar Grupo '{nombre_grupo}'...", "warning")
+                break
+
+        # 3. Guardar SIEMPRE el grupo completo para asegurar los datos en el portal
+        try:
+            app.log(f"   💾 Guardando Grupo '{nombre_grupo}'...", "detail")
+            btn_guardar_grp = page.locator(selector_guardar_grupo).first
+            btn_guardar_grp.click(force=True, timeout=timeout_ms)
+            time.sleep(1.0)
+            app.log(f"   ✨ Grupo '{nombre_grupo}' guardado exitosamente.", "success")
+        except Exception as e_grp_save:
+            app.log(f"   ⚠️ Error al guardar Grupo '{nombre_grupo}': {e_grp_save}", "warning")
+
+        if app.debe_detener:
+            app.log(f"\n⏹️ Operación '{nombre_grupo}' guardada exitosamente. Proceso detenido de forma segura.", "warning")
+            break
+
+    if lista_errores:
+        guardar_reporte_errores(ruta_excel, "Composición por Grupo", lista_errores)
 
     return exitosos, errores
 
@@ -1445,9 +1956,16 @@ def ejecutar(ruta_excel, nombre_proceso, app):
             app.log(f"🌐 Pestaña activa: {page.url}", "info")
             app.log("=" * 60, "divider")
 
-            # Si el proceso es de tipo formula_marco (2 niveles), derivar al manejador especializado
-            if proceso_cfg.get("TIPO_PROCESO") == "formula_marco":
+            # Manejadores especializados según TIPO_PROCESO
+            tipo_proceso = proceso_cfg.get("TIPO_PROCESO")
+            if tipo_proceso == "formula_marco":
                 exitosos, errores = ejecutar_proceso_formula_marco(page, proceso_cfg, filas, app, cfg, timeout_ms, ruta_excel)
+                app.log("=" * 60, "divider")
+                app.log(f"🏁 PROCESO FINALIZADO: {exitosos} ingredientes registrados, {errores} fallidos.", "header")
+                app.finalizar_proceso(exito=(errores == 0))
+                return
+            elif tipo_proceso == "composicion_grupo":
+                exitosos, errores = ejecutar_proceso_composicion_grupo(page, proceso_cfg, filas, app, cfg, timeout_ms, ruta_excel)
                 app.log("=" * 60, "divider")
                 app.log(f"🏁 PROCESO FINALIZADO: {exitosos} ingredientes registrados, {errores} fallidos.", "header")
                 app.finalizar_proceso(exito=(errores == 0))
