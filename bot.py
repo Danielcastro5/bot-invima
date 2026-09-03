@@ -1717,63 +1717,32 @@ def ejecutar_proceso_composicion_grupo(page, proceso_cfg, filas, app, cfg, timeo
                         pass
 
                 app.log(f"   🖱️ Abriendo ventana 'Composición por Grupo'...", "detail")
-                btn_abrir_grp = page.locator(selector_abrir).first
+                btn_abrir_grp = page.locator("button:has-text('Añadir Composición por Grupo'), button:has-text('Agregar Composición por Grupo'), button:has-text('Añadir composición por grupo'), button:has-text('Agregar composición por grupo'), button:has-text('Composición por Grupo'), button:has-text('Composicion por Grupo')").first
                 try:
                     btn_abrir_grp.scroll_into_view_if_needed(timeout=1000)
-                    btn_abrir_grp.click(force=True, timeout=3000)
                 except Exception:
-                    try:
-                        btn_abrir_grp.evaluate("el => el.click()")
-                    except Exception:
-                        page.locator("button:has-text('Composición por Grupo'), button:has-text('Composicion por Grupo'), button:has-text('Añadir Composición'), button:has-text('Agregar Composición')").first.click(force=True, timeout=3000)
+                    pass
                 
-                page.wait_for_selector(selector_modal_principal, state="visible", timeout=timeout_ms)
+                try:
+                    btn_abrir_grp.evaluate("el => el.click()")
+                except Exception:
+                    btn_abrir_grp.click(force=True, timeout=3000)
+                
+                page.wait_for_selector(".ant-modal:not([style*='display: none']), .ant-modal-wrap:not([style*='display: none']), .ant-modal-confirm", state="visible", timeout=timeout_ms)
                 time.sleep(0.5)
 
                 # Clic en 'Usar Fórmula Marco'
                 if boton_accion_previa:
                     app.log(f"   🖱️ Seleccionando opción 'Usar Fórmula Marco'...", "detail")
-                    time.sleep(0.4)
-                    clic_exitoso = False
-                    candidatos = [
-                        "button:has-text('Usar Fórmula Marco')",
-                        "button:has-text('Usar fórmula marco')",
-                        "button:has-text('Usar Formula Marco')",
-                        "button:has-text('Usar formula marco')",
-                        "button:has-text('Fórmula Marco')",
-                        "button:has-text('Formula Marco')",
-                        "button:has-text('Marco')",
-                        ".ant-modal-confirm-body button",
-                        ".ant-modal-body button",
-                        boton_accion_previa
-                    ]
-                    for cand in candidatos:
-                        try:
-                            loc = page.locator(cand)
-                            cnt = loc.count()
-                            if cnt > 0:
-                                for idx_btn in range(cnt):
-                                    btn_elem = loc.nth(idx_btn)
-                                    txt_btn = btn_elem.inner_text().strip()
-                                    if "marco" in txt_btn.lower() or "formula" in txt_btn.lower():
-                                        app.log(f"   🎯 Clic en opción: '{txt_btn}'", "detail")
-                                        btn_elem.scroll_into_view_if_needed(timeout=1000)
-                                        btn_elem.click(force=True, timeout=3000)
-                                        clic_exitoso = True
-                                        break
-                                if clic_exitoso:
-                                    break
-                                if cand == boton_accion_previa:
-                                    loc.first.click(force=True, timeout=3000)
-                                    clic_exitoso = True
-                                    break
-                        except Exception:
-                            continue
-
-                    if not clic_exitoso:
-                        page.locator(boton_accion_previa).first.click(force=True, timeout=timeout_ms)
+                    time.sleep(0.3)
+                    btn_marco = page.locator("button:has-text('Usar Fórmula Marco'), button:has-text('Usar fórmula marco'), button:has-text('Usar Formula Marco'), button:has-text('Usar formula marco'), .ant-modal-confirm-body button:has-text('Marco'), .ant-modal-confirm-body button:has-text('Fórmula')").first
+                    try:
+                        btn_marco.evaluate("el => el.click()")
+                    except Exception:
+                        btn_marco.click(force=True, timeout=3000)
 
                     time.sleep(0.8)
+                    page.wait_for_selector(".ant-modal-body form, .ant-modal:not(.ant-modal-confirm)", state="visible", timeout=timeout_ms)
 
                 # Llenar campos de cabecera del grupo (Grupo, Fórmula Marco)
                 primera_fila = lista_ingredientes[0]

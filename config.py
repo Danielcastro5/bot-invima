@@ -195,9 +195,9 @@ PROCESOS = {
     "Composición (Composición por Grupo)": {
         "NOMBRE_HOJA": "Composición por grupo",
         "TIPO_PROCESO": "composicion_grupo",
-        "BOTON_ABRIR_MODAL": r"button:has-text('Añadir Composición por Grupo'), button:has-text('Agregar Composición por Grupo'), button:has-text('Composición por Grupo'), button:has-text('Composicion por Grupo'), button:has-text('Composición por grupo'), button:has-text('Composicion por grupo'), #single-spa-application\:\@cx\/workspace-cosmetics > div > main > div.erHFPg5exWzGeIbPIRYe > div.xhUocBpKVBF6DfRqoST5 > div.vQ8bD_kd41eOJ1OyVQYW > div.ant-row.css-cdzvx5 > div > div > div > div > div:nth-child(9) > div > button, #single-spa-application\:\@cx\/workspace-cosmetics > div > main > div.erHFPg5exWzGeIbPIRYe > div.xhUocBpKVBF6DfRqoST5 > div.vQ8bD_kd41eOJ1OyVQYW > div.ant-row.css-cdzvx5 > div > div > div > div > div:nth-child(9) > div button",
-        "SELECTOR_MODAL_PRINCIPAL": r".ant-modal-wrap:not([style*='display: none']), .ant-modal-content, .ant-modal",
-        "BOTON_ACCION_PREVIA": r"button:has-text('Usar Fórmula Marco'), button:has-text('Usar fórmula marco'), button:has-text('Usar Formula Marco'), button:has-text('Usar formula marco'), button:has-text('Fórmula Marco'), button:has-text('Formula Marco'), .ant-modal-confirm-body button:has-text('Fórmula Marco'), .ant-modal-confirm-body button:has-text('Formula Marco'), body > div:nth-child(5) > div > div.ant-modal-wrap > div > div:nth-child(1) > div > div > div > div.ant-modal-confirm-body.ant-modal-confirm-body-has-title > div > div > div > button",
+        "BOTON_ABRIR_MODAL": r"button:has-text('Añadir Composición por Grupo'), button:has-text('Agregar Composición por Grupo'), button:has-text('Añadir composición por grupo'), button:has-text('Agregar composición por grupo'), button:has-text('Composición por Grupo'), button:has-text('Composicion por Grupo')",
+        "SELECTOR_MODAL_PRINCIPAL": r".ant-modal:not([style*='display: none']), .ant-modal-wrap:not([style*='display: none']), .ant-modal-content",
+        "BOTON_ACCION_PREVIA": r"button:has-text('Usar Fórmula Marco'), button:has-text('Usar fórmula marco'), button:has-text('Usar Formula Marco'), button:has-text('Usar formula marco'), .ant-modal-confirm-body button:has-text('Marco'), .ant-modal-confirm-body button:has-text('Fórmula')",
         "CAMPOS_CABECERA": [
             {
                 "columna": "Grupo",
