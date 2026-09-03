@@ -72,6 +72,17 @@ Nombre exacto de la Hoja en Excel: Composición por grupo
 Encabezados requeridos en la Fila 1:
   • Columna: Nombre del grupo (o Grupo)
   • Columna: Nombre de la fórmula marco (o Fórmula Marco)
+  • Columna: Tipo
+  • Columna: Ingrediente / Mezcla
+  • Columna: Función
+  • Columna: Listado de referencia
+  • Columna: Cantidad
+  • Columna: Unidad de medida
+  • Columna: ¿Es nanomaterial?
+  • Columna: Tamaño de partícula (nm)
+
+💡 Múltiples Ingredientes por Grupo:
+Si un grupo tiene varios ingredientes, se registran en filas consecutivas. Puedes repetir el nombre del Grupo en cada fila o dejar la celda de Grupo en blanco hacia abajo; el bot agregará todos los ingredientes dentro del mismo grupo antes de guardarlo en el portal.
 
 --- PROCESO 6: Información General (Características Organolépticas) ---
 Nombre exacto de la Hoja en Excel: Características Organolépticas

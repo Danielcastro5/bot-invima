@@ -411,7 +411,7 @@ def buscar_actualizaciones_github(app):
                 return
 
             if version_remota != VERSION_ACTUAL and not version_remota.startswith(VERSION_ACTUAL):
-                app.log(f"🔔 ¡NUEVA VERSIÓN DISPONIBLE EN GITHUB! ({version_remota})", "warning")
+                app.log(f"🔔 ¡NUEVA VERSIÓN DISPONIBLE! ({version_remota})", "warning")
                 app.mostrar_modal_actualizacion(data)
             else:
                 app.log(f"✅ Bot actualizado a la versión oficial ({VERSION_ACTUAL}).", "info")
@@ -424,10 +424,10 @@ def buscar_actualizaciones_github(app):
 
 def ejecutar_actualizacion_automatica(exe_url, config_url, app):
     """
-    Descarga la nueva versión desde GitHub y reinicia la aplicación automáticamente.
+    Descarga la nueva versión y reinicia la aplicación automáticamente.
     """
     try:
-        app.log("⬇️ Descargando actualización desde GitHub...", "info")
+        app.log("⬇️ Descargando actualización...", "info")
         base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
         ruta_exe_nuevo = os.path.join(base_dir, "Automatizador_INVIMA_nueva.exe")
         ruta_exe_actual = os.path.join(base_dir, "Automatizador INVIMA.exe")
