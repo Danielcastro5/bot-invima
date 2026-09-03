@@ -1,7 +1,7 @@
 {
-  "version": "v1.1.6",
-  "exe_url": "https://github.com/Danielcastro5/bot-invima/releases/download/v1.1.6/Automatizador_INVIMA.exe",
+  "version": "v1.1.7",
+  "exe_url": "https://github.com/Danielcastro5/bot-invima/releases/download/v1.1.7/Automatizador_INVIMA.exe",
   "config_url": "",
-  "novedades": "• Agrupación inteligente de ingredientes por grupo/fórmula marco (soporte de nombres repetidos y celdas vacías consecutivas).\n• Selección directa y robusta de 'Listado de Referencia' mediante eventos nativos JavaScript.\n• Sistema de detención segura con guardado garantizado de operaciones en curso.\n• Sistema de reintentos individuales de 3 pasos por ingrediente y grupo.\n• Corrección y refinamiento de selectores en modales de Composición y Fórmula Marco."
+  "novedades": "• Apertura directa e infalible de ventana en 'Composición por Grupo' mediante eventos nativos JavaScript.\n• Eliminación de selectores dependientes de coordenadas o posición de pantalla.\n• Detección y selección automática de confirmación 'Usar Fórmula Marco'.\n• Agrupación inteligente de ingredientes por grupo/fórmula marco (soporte de nombres repetidos y celdas vacías).\n• Sistema de detención segura con guardado garantizado de operaciones en curso."
 }
 

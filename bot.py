@@ -26,7 +26,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 PUERTO_CHROME = 9222   # Puerto de depuración de Chrome
 
-VERSION_ACTUAL = "v1.1.6"
+VERSION_ACTUAL = "v1.1.7"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/Danielcastro5/bot-invima/main/version.json"
 FIREBASE_DB_URL = "https://bot-invima-licencias-default-rtdb.firebaseio.com"
 SECRET_SALT_LICENCIA = "BOT_INVIMA_SECURE_AUTH_SALT_2026_V1"
