@@ -65,7 +65,7 @@ PROCESOS = {
     },
 
     "Composición (Ingredientes)": {
-        "NOMBRE_HOJA": "Composición",
+        "NOMBRE_HOJA": "Ingredientes",
         "BOTON_ABRIR_MODAL": r"#single-spa-application\:\@cx\/workspace-cosmetics > div > main > div.erHFPg5exWzGeIbPIRYe > div.xhUocBpKVBF6DfRqoST5 > div.vQ8bD_kd41eOJ1OyVQYW > div.ant-row.css-cdzvx5 > div > div > div > div > div.ant-row.ant-row-end.ant-row-middle.css-1pu91a6 > div button, button:has-text('Agregar'), button:has-text('Adicionar')",
         "SELECTOR_MODAL": r"body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div, .ant-modal-content, .ant-modal",
         "BOTON_ENVIAR": r".ant-modal-footer button.ant-btn-primary, button:has-text('Guardar'), button[type='submit']",

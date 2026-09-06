@@ -14,7 +14,10 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap"
     rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=2.2.0">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="shortcut icon" href="favicon.ico">
+  <link rel="apple-touch-icon" href="logo_mc.png">
+  <link rel="stylesheet" href="styles.css?v=2.3.0">
 </head>
 
 <body>
@@ -29,22 +32,22 @@
       <div class="login-header">
         <div class="brand-badge-outer">
           <div class="brand-badge-inner">
-            <svg class="icon-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
-              stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-              <path d="m9 12 2 2 4-4" />
-            </svg>
+            <img src="logo_mc.png" alt="MC Procesos Integrales" class="login-logo-img">
           </div>
-          <div class="badge-status-ring"></div>
+          <div class="badge-status-ring" title="Sistema en línea"></div>
         </div>
 
         <div class="login-title-group">
+          <div class="brand-corporate-title">
+            <span class="mc-brand-red">MC</span>
+            <span class="mc-brand-purple">PROCESOS INTEGRALES</span>
+          </div>
           <div class="login-pretag">
             <span class="pulse-dot"></span>
             <span>PORTAL ADMINISTRATIVO</span>
           </div>
           <h1>Control de Licencias</h1>
-          <p class="subtitle">Ingresa la clave de administración para acceder al panel</p>
+          <p class="subtitle">Automatización &bull; Gestión en Tiempo Real</p>
         </div>
       </div>
 
@@ -112,16 +115,15 @@
     <!-- Top Navigation Bar -->
     <header class="navbar glass-panel">
       <div class="nav-brand">
-        <div class="brand-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"
-            stroke-linejoin="round">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-            <path d="m9 12 2 2 4-4" />
-          </svg>
+        <div class="brand-nav-logo-box">
+          <img src="logo_mc.png" alt="MC Procesos Integrales" class="navbar-logo-img">
         </div>
         <div class="brand-text">
-          <h2>Panel de Control de Licencias</h2>
-          <span class="brand-sub">Automatizador INVIMA &bull; Gestión en la Nube</span>
+          <div class="nav-corporate-title">
+            <span class="mc-brand-red">MC</span>
+            <span class="mc-brand-purple">PROCESOS INTEGRALES</span>
+          </div>
+          <span class="brand-sub">Panel de Control de Licencias &bull; Automatizador INVIMA</span>
         </div>
       </div>
 
@@ -360,7 +362,7 @@
   <!-- Toast Notification Container -->
   <div id="toastContainer" class="toast-container"></div>
 
-  <script src="app.js?v=2.2.0"></script>
+  <script src="app.js?v=2.4.0"></script>
 </body>
 
 </html>

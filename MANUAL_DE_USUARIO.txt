@@ -1,5 +1,5 @@
 ========================================================================
-                   AUTOMATIZADOR INVIMA v1.1.7
+                   AUTOMATIZADOR INVIMA v1.1.8
              MANUAL DE USUARIO Y GUÍA DE OPERACIÓN
 ========================================================================
 
@@ -14,11 +14,11 @@
 ------------------------------------------------------------------------
 Paso 1: Abre la aplicación "Automatizador INVIMA.exe".
 Paso 2: Si es la primera vez, ingresa tu Clave de Licencia y presiona "Activar Licencia".
-Paso 3: Haz clic en el botón "🌐 Abrir Chrome Bot" situado en la barra superior.
+Paso 3: Haz clic en el botón "🌐 Chrome Bot" situado en la barra superior.
 Paso 4: En la ventana de Chrome que se abre, ingresa al portal de INVIMA con tus credenciales y navega exactamente hasta el formulario del trámite a diligenciar.
-Paso 5: Selecciona el Proceso a automatizar en la aplicación (ej: "Información General (Presentaciones)" o "Composición").
-Paso 6: Haz clic en "📂 Cargar Excel (.xlsx)" y selecciona tu archivo de datos.
-Paso 7: Haz clic en "🚀 Comenzar Automatización".
+Paso 5: Selecciona el Requisito a procesar en la aplicación.
+Paso 6: Haz clic en "📂 Seleccionar archivo" y carga tu plantilla oficial.
+Paso 7: Haz clic en "▶ Iniciar automatización".
 
 3. ESTRUCTURA Y REGLAS DE LAS HOJAS DE EXCEL
 ------------------------------------------------------------------------
@@ -26,7 +26,12 @@ Paso 7: Haz clic en "🚀 Comenzar Automatización".
 ⚠️ REGLA DE ORO 2: Los encabezados de las columnas en la Fila 1 deben coincidir al 100% con los requeridos.
 ⚠️ REGLA DE ORO 3: Los valores y textos ingresados en las celdas (ej: tipos de envase, materiales, unidades de medida, etc.) deben coincidir AL 100% con las opciones desplegables del portal INVIMA, incluyendo tildes, mayúsculas y espacios. Si el portal tiene "Cojín", en Excel DEBE decir "Cojín" (no "cojin" ni "Cojin").
 
---- PROCESO 1: Información General (Presentaciones) ---
+--- PROCESO 1: Información General (Grupos) ---
+Nombre exacto de la Hoja en Excel: Grupos
+Encabezados requeridos en la Fila 1:
+  • Columna: Nombre del grupo
+
+--- PROCESO 2: Información General (Presentaciones) ---
 Nombre exacto de la Hoja en Excel: Presentaciones comerciales
 Encabezados requeridos en la Fila 1:
   • Columna: Contenido Neto
@@ -37,8 +42,8 @@ Encabezados requeridos en la Fila 1:
   • Columna: Material del Envase Secundario
   • Columna: Observaciones
 
---- PROCESO 2: Composición ---
-Nombre exacto de la Hoja en Excel: Composición
+--- PROCESO 3: Composición (Ingredientes) ---
+Nombre exacto de la Hoja en Excel: Ingredientes (o Composición Ingredientes / Composición)
 Encabezados requeridos en la Fila 1:
   • Columna: Tipo
   • Columna: Ingrediente / Mezcla
@@ -49,12 +54,7 @@ Encabezados requeridos en la Fila 1:
   • Columna: ¿Es nanomaterial?
   • Columna: Tamaño de partícula (nm)
 
---- PROCESO 3: Grupos ---
-Nombre exacto de la Hoja en Excel: Grupos
-Encabezados requeridos en la Fila 1:
-  • Columna: Nombre del grupo
-
---- PROCESO 4: Fórmula Marco ---
+--- PROCESO 4: Composición (Fórmula Marco) ---
 Nombre exacto de la Hoja en Excel: Fórmula Marco
 Encabezados requeridos en la Fila 1:
   • Columna: Nombre de la fórmula marco
@@ -67,11 +67,11 @@ Encabezados requeridos en la Fila 1:
   • Columna: ¿Es nanomaterial?
   • Columna: Tamaño de partícula (nm)
 
---- PROCESO 5: Composición por Grupo ---
+--- PROCESO 5: Composición (Composición por Grupo) ---
 Nombre exacto de la Hoja en Excel: Composición por grupo
 Encabezados requeridos en la Fila 1:
-  • Columna: Nombre del grupo (o Grupo)
-  • Columna: Nombre de la fórmula marco (o Fórmula Marco)
+  • Columna: Grupo (o Nombre del grupo)
+  • Columna: Fórmula Marco (o Nombre de la fórmula marco)
   • Columna: Tipo
   • Columna: Ingrediente / Mezcla
   • Columna: Función
@@ -84,7 +84,7 @@ Encabezados requeridos en la Fila 1:
 💡 Múltiples Ingredientes por Grupo:
 Si un grupo tiene varios ingredientes, se registran en filas consecutivas. Puedes repetir el nombre del Grupo en cada fila o dejar la celda de Grupo en blanco hacia abajo; el bot agregará todos los ingredientes dentro del mismo grupo antes de guardarlo en el portal.
 
---- PROCESO 6: Información General (Características Organolépticas) ---
+--- PROCESO 6: Características Técnicas (Características Organolépticas) ---
 Nombre exacto de la Hoja en Excel: Características Organolépticas
 Encabezados requeridos en la Fila 1:
   • Columna: Grupo Cosmético (o Grupo)
@@ -94,8 +94,8 @@ Encabezados requeridos en la Fila 1:
 
 4. MANEJO DE ERRORES Y REPORTES
 ------------------------------------------------------------------------
-- Si una fila falla en el Excel, el bot realizará hasta 3 reintentos automáticos por fila.
-- Si tras 3 intentos no se logra registrar la fila, el bot guardará un reporte detallado en un archivo "reporte_errores_YYYY-MM-DD.txt" con el número de fila exacto y la causa, y continuará con las siguientes filas sin detener la ejecución.
+- Si una fila presenta inconsistencias, el bot realizará hasta 3 reintentos automáticos por fila.
+- Si tras 3 intentos no se logra registrar la fila, el bot guardará un reporte detallado en un archivo de texto con el número de fila exacto y la causa, y continuará con las siguientes filas sin detener la ejecución.
 
 5. CLÁUSULA DE EXENCIÓN DE RESPONSABILIDAD LEGAL (DISCLAIMER)
 ------------------------------------------------------------------------

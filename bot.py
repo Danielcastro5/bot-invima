@@ -17,23 +17,65 @@ import hashlib
 import uuid
 import base64
 import winreg
+import ctypes
 from datetime import datetime
 import socket
+import shutil
+
+# Activar Alta Resolución Nativa en Windows (Evita pixelación y texto borroso por escalado)
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(1)
+except Exception:
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+# Establecer ID de Modelo de Usuario de Aplicación explícito (AppUserModelID)
+# Garantiza que Windows vincule permanentemente el icono oficial (.ico) en la barra de tareas y accesos directos
+try:
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("MCProcesosIntegrales.AutomatizadorINVIMA.App.v1")
+except Exception:
+    pass
+
 import customtkinter as ctk
+from PIL import Image, ImageTk
 from tkinter import filedialog, messagebox
-from openpyxl import load_workbook
+from openpyxl import load_workbook, Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 PUERTO_CHROME = 9222   # Puerto de depuración de Chrome
 
-VERSION_ACTUAL = "v1.1.7"
+VERSION_ACTUAL = "v1.1.8"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/Danielcastro5/bot-invima/main/version.json"
 FIREBASE_DB_URL = "https://bot-invima-licencias-default-rtdb.firebaseio.com"
 SECRET_SALT_LICENCIA = "BOT_INVIMA_SECURE_AUTH_SALT_2026_V1"
 
-# Configuración inicial de CustomTkinter
-ctk.set_appearance_mode("Dark")
+# Configuración inicial de CustomTkinter (Estilo Ejecutivo MC Procesos Integrales)
+ctk.set_appearance_mode("Light")
 ctk.set_default_color_theme("blue")
+
+
+def obtener_ruta_recurso(nombre_relativo):
+    """
+    Obtiene la ruta absoluta para un recurso, compatible con desarrollo local y PyInstaller.
+    """
+    if getattr(sys, 'frozen', False):
+        base_path = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+    else:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+
+    ruta = os.path.join(base_path, nombre_relativo)
+    if os.path.exists(ruta):
+        return ruta
+
+    if getattr(sys, 'frozen', False):
+        ruta_exe = os.path.join(os.path.dirname(sys.executable), nombre_relativo)
+        if os.path.exists(ruta_exe):
+            return ruta_exe
+
+    return ruta
 
 
 # --------------------------------------------------------------------------
@@ -546,21 +588,29 @@ def leer_excel(ruta, app, cfg, proceso_config):
 
     nombre_hoja = proceso_config.get("NOMBRE_HOJA", "Matriz Presentaciones")
     
-    # Búsqueda flexible de la hoja (exacta o ignorando tildes y mayúsculas)
+    # Búsqueda flexible de la hoja (exacta, alias o ignorando tildes y mayúsculas)
     hoja_encontrada = None
-    if nombre_hoja in libro.sheetnames:
-        hoja_encontrada = nombre_hoja
-    else:
-        norm_hoja_req = normalizar_texto(nombre_hoja)
+    candidatos_hoja = [nombre_hoja]
+    if "ingrediente" in nombre_hoja.lower() or "composici" in nombre_hoja.lower():
+        if "grupo" not in nombre_hoja.lower() and "marco" not in nombre_hoja.lower():
+            candidatos_hoja.extend(["Ingredientes", "Composición Ingredientes", "Composicion Ingredientes", "Composición", "Composicion"])
+
+    for cand in candidatos_hoja:
+        if cand in libro.sheetnames:
+            hoja_encontrada = cand
+            break
+        norm_cand = normalizar_texto(cand)
         for s in libro.sheetnames:
-            if normalizar_texto(s) == norm_hoja_req:
+            if normalizar_texto(s) == norm_cand:
                 hoja_encontrada = s
                 break
+        if hoja_encontrada:
+            break
 
     if not hoja_encontrada:
         app.log(f"❌ ERROR: El Excel seleccionado no contiene la hoja '{nombre_hoja}'.", "error")
         app.log(f"📋 Hojas disponibles en este Excel: {', '.join(libro.sheetnames)}", "warning")
-        app.log(f"💡 Asegúrate de que el Excel contenga una pestaña llamada '{nombre_hoja}'", "info")
+        app.log(f"💡 Asegúrate de que el Excel contenga una pestaña llamada '{nombre_hoja}' (o 'Ingredientes')", "info")
         return None
 
     hoja = libro[hoja_encontrada]
@@ -2157,18 +2207,31 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("Automatizador INVIMA PRO")
-        self.geometry("860x780")
-        self.minsize(820, 700)
+        self.title("MC PROCESOS INTEGRALES - Automatizador")
+        self.geometry("1240x860")
+        self.minsize(1140, 780)
+        self.configure(fg_color="#CEDDF0")
 
-        # Cargar icono de ventana
-        base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
-        ruta_ico = os.path.join(base_dir, "app_icon.ico")
-        if os.path.exists(ruta_ico):
-            try:
-                self.iconbitmap(ruta_ico)
-            except Exception:
-                pass
+        # Cargar icono de ventana y de barra de tareas con persistencia total
+        self._icono_ref = None
+        for cand_ico in ["app_icon.ico", os.path.join("assets", "app_icon.ico"), os.path.join("assets", "icon.ico")]:
+            ruta_ico = obtener_ruta_recurso(cand_ico)
+            if os.path.exists(ruta_ico):
+                try:
+                    self.iconbitmap(ruta_ico)
+                except Exception:
+                    pass
+                try:
+                    self.wm_iconbitmap(ruta_ico)
+                except Exception:
+                    pass
+                try:
+                    ico_img = Image.open(ruta_ico)
+                    self._icono_ref = ImageTk.PhotoImage(ico_img)
+                    self.iconphoto(True, self._icono_ref)
+                except Exception:
+                    pass
+                break
 
         # Variables de control
         self.cfg = cargar_config_dinamico()
@@ -2181,8 +2244,17 @@ class App(ctk.CTk):
         self.licencia_info = None
 
         self._construir_interfaz()
+        self.protocol("WM_DELETE_WINDOW", self._on_cerrar_aplicacion)
         buscar_actualizaciones_github(self)
         self.after(300, self._verificar_licencia_inicial)
+
+    def _on_cerrar_aplicacion(self):
+        try:
+            if hasattr(self, 'dropdown_menu') and self.dropdown_menu:
+                self.dropdown_menu.cerrar()
+        except Exception:
+            pass
+        self.destroy()
 
     def _verificar_licencia_inicial(self):
         datos_locales = leer_licencia_local()
@@ -2199,10 +2271,16 @@ class App(ctk.CTk):
 
     def mostrar_modal_activacion_licencia(self, mensaje_error_inicial=""):
         top = ctk.CTkToplevel(self)
-        top.title("🔐 Activación de Licencia - Bot INVIMA")
+        top.title("🔐 Activación de Licencia - MC PROCESOS INTEGRALES")
         top.geometry("520x360")
         top.resizable(False, False)
         top.attributes("-topmost", True)
+        top.configure(fg_color="#F8FAFC")
+        if getattr(self, '_icono_ref', None):
+            try:
+                top.iconphoto(True, self._icono_ref)
+            except Exception:
+                pass
         top.grab_set()
 
         def _on_cerrar_sin_licencia():
@@ -2222,15 +2300,15 @@ class App(ctk.CTk):
             top,
             text="🔐 Activación de Licencia de Software",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
-            text_color="#F8FAFC"
+            text_color="#1E1B4B"
         )
         lbl_title.pack(pady=(22, 6))
 
         lbl_sub = ctk.CTkLabel(
             top,
             text="Ingresa tu Clave de Licencia proporcionada por el proveedor\npara activar el Automatizador INVIMA en este equipo.",
-            font=ctk.CTkFont(size=12),
-            text_color="#94A3B8"
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            text_color="#64748B"
         )
         lbl_sub.pack(pady=(0, 16))
 
@@ -2239,15 +2317,18 @@ class App(ctk.CTk):
             placeholder_text="XXXX-XXXX-XXXX-XXXX",
             width=380,
             height=42,
-            font=ctk.CTkFont(size=14, weight="bold")
+            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+            fg_color="#FFFFFF",
+            border_color="#CBD5E1",
+            text_color="#1E293B"
         )
         entry_clave.pack(pady=8)
 
         lbl_status = ctk.CTkLabel(
             top,
             text=mensaje_error_inicial,
-            font=ctk.CTkFont(size=12),
-            text_color="#EF4444" if mensaje_error_inicial else "#94A3B8"
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            text_color="#EF4444" if mensaje_error_inicial else "#64748B"
         )
         lbl_status.pack(pady=6)
 
@@ -2257,7 +2338,7 @@ class App(ctk.CTk):
                 lbl_status.configure(text="❌ Por favor ingresa tu clave de licencia.", text_color="#EF4444")
                 return
 
-            lbl_status.configure(text="⏳ Verificando licencia en línea...", text_color="#3B82F6")
+            lbl_status.configure(text="⏳ Verificando licencia en línea...", text_color="#7D51E9")
             top.update()
 
             valido, res = validar_licencia_firebase(clave_ingresada)
@@ -2272,11 +2353,13 @@ class App(ctk.CTk):
         btn_activar = ctk.CTkButton(
             top,
             text="🚀 Activar Licencia Ahora",
-            font=ctk.CTkFont(weight="bold", size=14),
-            fg_color="#3B82F6",
-            hover_color="#2563EB",
+            font=ctk.CTkFont(family="Segoe UI", weight="bold", size=14),
+            fg_color="#7D51E9",
+            hover_color="#6D28D9",
+            text_color="#FFFFFF",
             height=42,
             width=220,
+            corner_radius=8,
             command=_activar
         )
         btn_activar.pack(pady=(12, 10))
@@ -2290,29 +2373,45 @@ class App(ctk.CTk):
         def _construir_dialogo():
             try:
                 top = ctk.CTkToplevel(self)
-                top.title("✨ Actualización Disponible")
+                top.title("✨ Actualización Disponible - MC PROCESOS INTEGRALES")
                 top.geometry("500x340")
                 top.resizable(False, False)
                 top.attributes("-topmost", True)
+                top.configure(fg_color="#F8FAFC")
+                if getattr(self, '_icono_ref', None):
+                    try:
+                        top.iconphoto(True, self._icono_ref)
+                    except Exception:
+                        pass
                 top.grab_set()
 
                 lbl = ctk.CTkLabel(
                     top,
                     text=f"🎉 ¡Nueva versión {version_n} disponible!",
                     font=ctk.CTkFont(family="Segoe UI", size=17, weight="bold"),
-                    text_color="#10B981"
+                    text_color="#0DBE8A"
                 )
                 lbl.pack(pady=(18, 6))
 
                 lbl_sub = ctk.CTkLabel(
                     top,
                     text="Una versión más reciente del Automatizador está lista para instalar.",
-                    font=ctk.CTkFont(size=12),
-                    text_color="#94A3B8"
+                    font=ctk.CTkFont(family="Segoe UI", size=12),
+                    text_color="#64748B"
                 )
                 lbl_sub.pack(pady=(0, 10))
 
-                txt = ctk.CTkTextbox(top, width=450, height=140, fg_color="#0F172A", text_color="#E2E8F0")
+                txt = ctk.CTkTextbox(
+                    top,
+                    width=450,
+                    height=140,
+                    fg_color="#FFFFFF",
+                    text_color="#1E293B",
+                    border_color="#CBD5E1",
+                    border_width=1,
+                    corner_radius=8,
+                    font=ctk.CTkFont(family="Segoe UI", size=11)
+                )
                 txt.pack(pady=4)
                 txt.insert("0.0", f"Novedades:\n{novedades}")
                 txt.configure(state="disabled")
@@ -2324,10 +2423,12 @@ class App(ctk.CTk):
                 btn = ctk.CTkButton(
                     top,
                     text="🚀 Actualizar Ahora Automáticamente",
-                    font=ctk.CTkFont(weight="bold"),
-                    fg_color="#10B981",
-                    hover_color="#059669",
+                    font=ctk.CTkFont(family="Segoe UI", weight="bold"),
+                    fg_color="#0DBE8A",
+                    hover_color="#0AA779",
+                    text_color="#FFFFFF",
                     height=38,
+                    corner_radius=8,
                     command=_actualizar
                 )
                 btn.pack(pady=14)
@@ -2338,31 +2439,40 @@ class App(ctk.CTk):
 
     def mostrar_modal_manual(self):
         top = ctk.CTkToplevel(self)
-        top.title("📖 Manual de Usuario y Cláusula Legal - Automatizador INVIMA")
-        top.geometry("700x580")
+        top.title("📖 Manual de Usuario y Guía de Operación - MC PROCESOS INTEGRALES")
+        top.geometry("740x620")
         top.resizable(True, True)
         top.attributes("-topmost", True)
+        top.configure(fg_color="#F8FAFC")
+        if getattr(self, '_icono_ref', None):
+            try:
+                top.iconphoto(True, self._icono_ref)
+            except Exception:
+                pass
 
         lbl_title = ctk.CTkLabel(
             top,
             text="📖 Manual de Operación y Cláusula de Exención de Responsabilidad",
             font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
-            text_color="#F8FAFC"
+            text_color="#1E1B4B"
         )
         lbl_title.pack(pady=(16, 6))
 
         txt_manual = ctk.CTkTextbox(
             top,
-            width=660,
-            height=440,
-            fg_color="#0F172A",
-            text_color="#E2E8F0",
-            font=ctk.CTkFont(family="Consolas", size=12)
+            width=700,
+            height=480,
+            fg_color="#FFFFFF",
+            text_color="#1E293B",
+            border_color="#CBD5E1",
+            border_width=1,
+            corner_radius=8,
+            font=ctk.CTkFont(family="Consolas", size=11)
         )
         txt_manual.pack(pady=8, padx=16, fill="both", expand=True)
 
         base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
-        ruta_txt = os.path.join(base_dir, "MANUAL_DE_USUARIO.txt")
+        ruta_txt = obtener_ruta_recurso("MANUAL_DE_USUARIO.txt")
         texto_contenido = ""
 
         if os.path.exists(ruta_txt):
@@ -2375,7 +2485,7 @@ class App(ctk.CTk):
         if not texto_contenido:
             texto_contenido = """========================================================================
              MANUAL DE USUARIO Y GUÍA DE OPERACIÓN
-                   AUTOMATIZADOR INVIMA v1.1
+                   AUTOMATIZADOR INVIMA
 ========================================================================
 
 1. REQUISITOS PREVIOS DEL SISTEMA
@@ -2391,43 +2501,20 @@ Paso 1: Abre la aplicación "Automatizador INVIMA.exe".
 Paso 2: Si es la primera vez, ingresa tu Clave de Licencia y presiona "Activar Licencia".
 Paso 3: Haz clic en el botón "🌐 Abrir Chrome Bot" situado en la barra superior.
 Paso 4: En la ventana de Chrome que se abre, ingresa al portal de INVIMA con tus credenciales y navega exactamente hasta el formulario del trámite a diligenciar.
-Paso 5: Selecciona el Proceso a automatizar en la aplicación (ej: "Información General (Presentaciones)" o "Composición").
-Paso 6: Haz clic en "📂 Cargar Excel (.xlsx)" y selecciona tu archivo de datos.
-Paso 7: Haz clic en "🚀 Comenzar Automatización".
+Paso 5: Selecciona el Requisito a procesar en la aplicación.
+Paso 6: Haz clic en "📂 Seleccionar archivo" y carga tu plantilla oficial.
+Paso 7: Haz clic en "▶ Iniciar automatización".
 
 3. ESTRUCTURA Y REGLAS DE LAS HOJAS DE EXCEL
 ------------------------------------------------------------------------
 ⚠️ REGLA DE ORO 1: Los nombres de las Hojas (pestañas de Excel) deben ser EXACTOS.
 ⚠️ REGLA DE ORO 2: Los encabezados de las columnas en la Fila 1 deben coincidir al 100% con los requeridos.
-⚠️ REGLA DE ORO 3: Los valores y textos ingresados en las celdas (ej: tipos de envase, materiales, unidades de medida, etc.) deben coincidir AL 100% con las opciones desplegables del portal INVIMA, incluyendo tildes, mayúsculas y espacios. Si el portal tiene "Cojín", en Excel DEBE decir "Cojín" (no "cojin" ni "Cojin").
-
---- PROCESO 1: Información General (Presentaciones) ---
-Nombre exacto de la Hoja en Excel: Presentaciones comerciales
-Encabezados requeridos en la Fila 1:
-  • Columna: Contenido Neto
-  • Columna: Unidad de Medida
-  • Columna: Tipo de Envase Primario
-  • Columna: Material del Envase Primario
-  • Columna: Tipo de Envase Secundario
-  • Columna: Material del Envase Secundario
-  • Columna: Observaciones
-
---- PROCESO 2: Composición ---
-Nombre exacto de la Hoja en Excel: Composición
-Encabezados requeridos en la Fila 1:
-  • Columna: Tipo
-  • Columna: Ingrediente / Mezcla
-  • Columna: Función
-  • Columna: Listado de referencia
-  • Columna: Cantidad
-  • Columna: Unidad de medida
-  • Columna: ¿Es nanomaterial?
-  • Columna: Tamaño de partícula (nm)
+⚠️ REGLA DE ORO 3: Los valores y textos ingresados en las celdas deben coincidir AL 100% con las opciones desplegables del portal INVIMA, incluyendo tildes, mayúsculas y espacios.
 
 4. MANEJO DE ERRORES Y REPORTES
 ------------------------------------------------------------------------
-- Si una fila falla en el Excel, el bot realizará hasta 3 reintentos automáticos por fila.
-- Si tras 3 intentos no se logra registrar la fila, el bot guardará un reporte detallado en un archivo "reporte_errores_YYYY-MM-DD.txt" con el número de fila exacto y la causa, y continuará con las siguientes filas sin detener la ejecución.
+- Si una fila presenta inconsistencias, el bot realizará reintentos automáticos.
+- El avance quedará registrado en la consola de trazabilidad y se puede exportar el reporte final.
 
 5. CLÁUSULA DE EXENCIÓN DE RESPONSABILIDAD LEGAL (DISCLAIMER)
 ------------------------------------------------------------------------
@@ -2441,27 +2528,48 @@ Encabezados requeridos en la Fila 1:
         txt_manual.configure(state="disabled")
 
         def _abrir_txt():
-            if os.path.exists(ruta_txt):
+            ruta_disco = os.path.join(base_dir, "MANUAL_DE_USUARIO.txt")
+            if os.path.exists(ruta_disco):
+                os.startfile(ruta_disco)
+            elif os.path.exists(ruta_txt):
                 os.startfile(ruta_txt)
             else:
-                with open(ruta_txt, "w", encoding="utf-8") as f:
+                with open(ruta_disco, "w", encoding="utf-8") as f:
                     f.write(texto_contenido)
-                os.startfile(ruta_txt)
+                os.startfile(ruta_disco)
 
         btn_abrir = ctk.CTkButton(
             top,
-            text="📄 Abrir / Guardar Archivo TXT",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color="#3B82F6",
-            hover_color="#2563EB",
+            text="📄 Abrir en Bloc de Notas / Editor",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            fg_color="#7D51E9",
+            hover_color="#6D28D9",
+            text_color="#FFFFFF",
+            height=34,
+            corner_radius=8,
             command=_abrir_txt
         )
-        btn_abrir.pack(pady=10)
+        btn_abrir.pack(pady=12)
 
     def _obtener_lista_procesos(self):
         if hasattr(self.cfg, "PROCESOS") and isinstance(self.cfg.PROCESOS, dict):
-            return list(self.cfg.PROCESOS.keys())
-        return ["Información General (Presentaciones)"]
+            procesos_disponibles = list(self.cfg.PROCESOS.keys())
+            # Orden de trabajo oficial de la plataforma Invima ágil
+            orden_preferido = [
+                "Información General (Grupos)",
+                "Información General (Presentaciones)",
+                "Composición (Ingredientes)",
+                "Composición (Fórmula Marco)",
+                "Composición (Composición por Grupo)",
+                "Características Técnicas (Características Organolépticas)"
+            ]
+            def _orden_key(nombre):
+                try:
+                    return orden_preferido.index(nombre)
+                except ValueError:
+                    return 999
+            return sorted(procesos_disponibles, key=_orden_key)
+        return ["Información General (Grupos)", "Información General (Presentaciones)"]
 
     def _obtener_icono_proceso(self, nombre_proceso):
         nombre_lower = str(nombre_proceso).lower()
@@ -2480,13 +2588,14 @@ Encabezados requeridos en la Fila 1:
         return "📋"
 
     def _obtener_hoja_para(self, nombre_proceso):
+        if "ingrediente" in str(nombre_proceso).lower():
+            return "Ingredientes"
         proceso_cfg = obtener_dict_proceso(self.cfg, nombre_proceso)
         return proceso_cfg.get("NOMBRE_HOJA", "Matriz")
 
     def _obtener_hoja_actual(self):
         nombre_proceso = getattr(self, 'proceso_seleccionado', self._obtener_lista_procesos()[0])
-        proceso_cfg = obtener_dict_proceso(self.cfg, nombre_proceso)
-        return proceso_cfg.get("NOMBRE_HOJA", "Matriz Presentaciones")
+        return self._obtener_hoja_para(nombre_proceso)
 
     def _obtener_info_campos(self):
         nombre_proceso = getattr(self, 'proceso_seleccionado', self._obtener_lista_procesos()[0])
@@ -2502,37 +2611,342 @@ Encabezados requeridos en la Fila 1:
             self.dropdown_menu.actualizar_seleccion(nuevo_proceso)
         self.on_proceso_changed(nuevo_proceso)
 
+    def generar_o_descargar_plantilla(self):
+        """
+        Permite al usuario descargar la plantilla oficial de trabajo en Excel
+        con todas las hojas oficiales requeridas y encabezados exactos.
+        Si existe un archivo 'plantilla_base.xlsx' en la carpeta de la app, copia ese archivo.
+        """
+        ruta_destino = filedialog.asksaveasfilename(
+            title="Guardar Plantilla Oficial de Trabajo Excel",
+            defaultextension=".xlsx",
+            initialfile="Plantilla_Oficial_Automatizador_INVIMA.xlsx",
+            filetypes=[("Archivos Excel (*.xlsx)", "*.xlsx"), ("Todos los archivos", "*.*")]
+        )
+        if not ruta_destino:
+            return
+
+        try:
+            base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+            plantilla_personalizada = os.path.join(base_dir, "plantilla_base.xlsx")
+            if os.path.exists(plantilla_personalizada):
+                shutil.copyfile(plantilla_personalizada, ruta_destino)
+                self.log(f"📥 Plantilla oficial exportada exitosamente: {os.path.basename(ruta_destino)}", "info")
+                messagebox.showinfo("Plantilla Descargada", f"¡Plantilla exportada exitosamente!\n\nSe guardó en:\n{ruta_destino}")
+                return
+
+            # Generar dinámicamente con openpyxl con todas las hojas oficiales
+            wb = Workbook()
+            wb.remove(wb.active)  # Quitar hoja inicial vacía
+
+            hojas_config = [
+                {
+                    "nombre": "Grupos",
+                    "columnas": ["Nombre del grupo"],
+                    "ejemplo": ["Grupo Labial Mate"]
+                },
+                {
+                    "nombre": "Presentaciones comerciales",
+                    "columnas": [
+                        "Contenido Neto", "Unidad de Medida", "Tipo de Envase Primario",
+                        "Material del Envase Primario", "Tipo de Envase Secundario",
+                        "Material del Envase Secundario", "Observaciones"
+                    ],
+                    "ejemplo": [30, "g", "Tubo", "Plástico", "Caja", "Cartón", "Presentación individual"]
+                },
+                {
+                    "nombre": "Ingredientes",
+                    "columnas": [
+                        "Tipo", "Ingrediente / Mezcla", "Función",
+                        "Listado de referencia", "Cantidad", "Unidad de medida",
+                        "¿Es nanomaterial?", "Tamaño de partícula (nm)"
+                    ],
+                    "ejemplo": ["Ingrediente", "Glicerina", "Humectante", "CosIng", "5", "%", "No", ""]
+                },
+                {
+                    "nombre": "Fórmula Marco",
+                    "columnas": [
+                        "Nombre de la fórmula marco", "Tipo", "Ingrediente / Mezcla",
+                        "Función", "Listado de referencia", "Cantidad", "Unidad de medida",
+                        "¿Es nanomaterial?", "Tamaño de partícula (nm)"
+                    ],
+                    "ejemplo": ["Fórmula Base Labial", "Ingrediente", "Agua", "Solvente", "CosIng", "80", "%", "No", ""]
+                },
+                {
+                    "nombre": "Composición por grupo",
+                    "columnas": [
+                        "Grupo", "Fórmula Marco", "Tipo", "Ingrediente / Mezcla",
+                        "Función", "Listado de referencia", "Cantidad", "Unidad de medida",
+                        "¿Es nanomaterial?", "Tamaño de partícula (nm)"
+                    ],
+                    "ejemplo": ["Grupo Labial Mate", "Fórmula Base Labial", "Ingrediente", "CI 77491", "Colorante", "CosIng", "2", "%", "No", ""]
+                },
+                {
+                    "nombre": "Características Organolépticas",
+                    "columnas": ["Grupo Cosmético", "Color", "Olor", "Sabor"],
+                    "ejemplo": ["Grupo Labial Mate", "Rojo carmín", "Frutos rojos", "Neutro"]
+                }
+            ]
+
+            header_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+            header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+            header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+            data_fill = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")
+            data_font = Font(name="Calibri", size=10, italic=True, color="475569")
+            data_align = Alignment(horizontal="center", vertical="center")
+
+            thin_side = Side(border_style="thin", color="CBD5E1")
+            cell_border = Border(top=thin_side, left=thin_side, right=thin_side, bottom=thin_side)
+
+            for item in hojas_config:
+                ws = wb.create_sheet(title=item["nombre"])
+                ws.append(item["columnas"])
+                ws.append(item["ejemplo"])
+
+                for col_idx in range(1, len(item["columnas"]) + 1):
+                    # Fila 1: Encabezados
+                    c1 = ws.cell(row=1, column=col_idx)
+                    c1.fill = header_fill
+                    c1.font = header_font
+                    c1.alignment = header_align
+                    c1.border = cell_border
+
+                    # Fila 2: Ejemplo
+                    c2 = ws.cell(row=2, column=col_idx)
+                    c2.fill = data_fill
+                    c2.font = data_font
+                    c2.alignment = data_align
+                    c2.border = cell_border
+
+                    col_letter = c1.column_letter
+                    ancho = max(len(str(item["columnas"][col_idx - 1])) + 4, 15)
+                    ws.column_dimensions[col_letter].width = ancho
+
+                ws.row_dimensions[1].height = 28
+                ws.row_dimensions[2].height = 20
+
+            wb.save(ruta_destino)
+            try:
+                wb.save(plantilla_personalizada)
+            except Exception:
+                pass
+
+            self.log(f"📥 Plantilla oficial generada y descargada: {os.path.basename(ruta_destino)}", "info")
+            messagebox.showinfo(
+                "Plantilla Descargada",
+                f"¡Plantilla generada con éxito!\n\nSe guardó en:\n{ruta_destino}\n\nIncluye todas las 6 pestañas oficiales con sus encabezados exactos y filas de ejemplo."
+            )
+        except Exception as e:
+            self.log(f"❌ Error al descargar plantilla: {e}", "error")
+            messagebox.showerror("Error al Descargar", f"No se pudo generar la plantilla Excel:\n{e}")
+
+    def limpiar_consola(self):
+        self.txt_log.configure(state="normal")
+        self.txt_log.delete("1.0", "end")
+        self.txt_log.configure(state="disabled")
+        self.log("🧹 Consola de trazabilidad limpiada.", "info")
+
+    def exportar_reporte(self):
+        contenido = self.txt_log.get("1.0", "end").strip()
+        if not contenido:
+            messagebox.showinfo("Reporte Vacío", "No hay eventos registrados en la consola para exportar.")
+            return
+        ruta = filedialog.asksaveasfilename(
+            title="Exportar Reporte de Trazabilidad",
+            defaultextension=".txt",
+            initialfile=f"reporte_trazabilidad_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+            filetypes=[("Archivos de texto (*.txt)", "*.txt"), ("Todos los archivos", "*.*")]
+        )
+        if ruta:
+            try:
+                with open(ruta, "w", encoding="utf-8") as f:
+                    f.write(contenido)
+                self.log(f"📄 Reporte exportado a: {os.path.basename(ruta)}", "info")
+                messagebox.showinfo("Reporte Exportado", f"Reporte guardado exitosamente en:\n{ruta}")
+            except Exception as e:
+                self.log(f"❌ Error exportando reporte: {e}", "error")
+
+    def mostrar_modal_ayuda(self):
+        top = ctk.CTkToplevel(self)
+        top.title("💬 Soporte y Asistencia - MC PROCESOS INTEGRALES")
+        top.geometry("480x330")
+        top.resizable(False, False)
+        top.attributes("-topmost", True)
+        top.configure(fg_color="#F8FAFC")
+        if getattr(self, '_icono_ref', None):
+            try:
+                top.iconphoto(True, self._icono_ref)
+            except Exception:
+                pass
+
+        lbl_t = ctk.CTkLabel(
+            top,
+            text="🎧 Centro de Soporte y Acompañamiento",
+            font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
+            text_color="#1E1B4B"
+        )
+        lbl_t.pack(pady=(22, 6))
+
+        lbl_sub = ctk.CTkLabel(
+            top,
+            text="MC Procesos Integrales • Automatización & Inteligencia Sanitaria\nNuestro equipo te acompaña en cada etapa regulatoria.",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#64748B"
+        )
+        lbl_sub.pack(pady=(0, 14))
+
+        box = ctk.CTkFrame(top, fg_color="#FFFFFF", border_color="#E2E8F0", border_width=1, corner_radius=10)
+        box.pack(padx=24, pady=6, fill="x")
+
+        lbl_contacto = ctk.CTkLabel(
+            box,
+            text="📧 Correo: contacto@mcprocesosintegrales.com\n📞 Soporte Regulatorio y Técnico Especializado\n🌐 Portal: www.mcprocesosintegrales.com",
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            text_color="#334155",
+            justify="left",
+            padx=14,
+            pady=12
+        )
+        lbl_contacto.pack(anchor="w")
+
+        btn_cerrar = ctk.CTkButton(
+            top,
+            text="Entendido",
+            font=ctk.CTkFont(family="Segoe UI", weight="bold"),
+            fg_color="#7D51E9",
+            hover_color="#6D28D9",
+            text_color="#FFFFFF",
+            width=120,
+            corner_radius=8,
+            command=top.destroy
+        )
+        btn_cerrar.pack(pady=(16, 10))
+
+    def _on_window_resize(self, event):
+        if event.widget == self:
+            w, h = event.width, event.height
+            if w > 300 and h > 300 and (w != getattr(self, '_last_bg_w', 0) or h != getattr(self, '_last_bg_h', 0)):
+                self._last_bg_w = w
+                self._last_bg_h = h
+                if getattr(self, 'img_app_bg', None):
+                    try:
+                        self.img_app_bg.configure(size=(w, h))
+                    except Exception:
+                        pass
+
     def _construir_interfaz(self):
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(4, weight=1)
+        self.configure(fg_color="#EEF2F8")
 
         lista_procesos = self._obtener_lista_procesos()
         self.proceso_seleccionado = lista_procesos[0]
 
-        # Componente de Dropdown Flotante Moderno (No desplaza la ventana, tiene barra lateral)
+        # Cargar recursos gráficos corporativos oficiales
+        self.img_logo_mc = None
+        self.img_cosmetics_card = None
+        self.img_doc_badge = None
+        self.iconos_servicios = {}
+
+        # Insignias vectoriales suavizadas de alta definición para el Wizard (4x Supersampled)
+        self.img_s1_active = None
+        self.img_s1_inactive = None
+        self.img_s2_active = None
+        self.img_s2_inactive = None
+        self.img_s3_active = None
+        self.img_s3_inactive = None
+
+        try:
+            r_s1_a = obtener_ruta_recurso(os.path.join("assets", "badge_s1_active.png"))
+            r_s1_i = obtener_ruta_recurso(os.path.join("assets", "badge_s1_inactive.png"))
+            r_s2_a = obtener_ruta_recurso(os.path.join("assets", "badge_s2_active.png"))
+            r_s2_i = obtener_ruta_recurso(os.path.join("assets", "badge_s2_inactive.png"))
+            r_s3_a = obtener_ruta_recurso(os.path.join("assets", "badge_s3_active.png"))
+            r_s3_i = obtener_ruta_recurso(os.path.join("assets", "badge_s3_inactive.png"))
+
+            if os.path.exists(r_s1_a):
+                self.img_s1_active = ctk.CTkImage(light_image=Image.open(r_s1_a), size=(32, 32))
+            if os.path.exists(r_s1_i):
+                self.img_s1_inactive = ctk.CTkImage(light_image=Image.open(r_s1_i), size=(32, 32))
+            if os.path.exists(r_s2_a):
+                self.img_s2_active = ctk.CTkImage(light_image=Image.open(r_s2_a), size=(32, 32))
+            if os.path.exists(r_s2_i):
+                self.img_s2_inactive = ctk.CTkImage(light_image=Image.open(r_s2_i), size=(32, 32))
+            if os.path.exists(r_s3_a):
+                self.img_s3_active = ctk.CTkImage(light_image=Image.open(r_s3_a), size=(32, 32))
+            if os.path.exists(r_s3_i):
+                self.img_s3_inactive = ctk.CTkImage(light_image=Image.open(r_s3_i), size=(32, 32))
+        except Exception:
+            pass
+
+        try:
+            ruta_doc = obtener_ruta_recurso(os.path.join("assets", "doc_icon.png"))
+            if not os.path.exists(ruta_doc):
+                ruta_doc = obtener_ruta_recurso(os.path.join("assets", "icon_bot_doc.png"))
+            if os.path.exists(ruta_doc):
+                self.img_doc_badge = ctk.CTkImage(light_image=Image.open(ruta_doc), size=(38, 38))
+        except Exception:
+            pass
+
+        try:
+            ruta_logo_mc = obtener_ruta_recurso(os.path.join("assets", "logo_mc_clean.png"))
+            if os.path.exists(ruta_logo_mc):
+                self.img_logo_mc = ctk.CTkImage(light_image=Image.open(ruta_logo_mc), size=(50, 50))
+        except Exception:
+            pass
+
+        for k in ["srv_tramites", "srv_analisis", "srv_certificacion", "srv_auditorias", "srv_automatizacion"]:
+            try:
+                r = obtener_ruta_recurso(os.path.join("assets", f"{k}_42.png"))
+                if not os.path.exists(r):
+                    r = obtener_ruta_recurso(os.path.join("assets", f"{k}.png"))
+                if os.path.exists(r):
+                    self.iconos_servicios[k] = ctk.CTkImage(light_image=Image.open(r), size=(38, 38))
+            except Exception:
+                pass
+
+        try:
+            ruta_aliado = obtener_ruta_recurso(os.path.join("assets", "aliado_feather.png"))
+            if not os.path.exists(ruta_aliado):
+                ruta_aliado = obtener_ruta_recurso(os.path.join("assets", "aliado_clean_alpha.png"))
+            if os.path.exists(ruta_aliado):
+                self.img_aliado = ctk.CTkImage(light_image=Image.open(ruta_aliado), size=(250, 48))
+        except Exception:
+            pass
+
+        try:
+            ruta_flask = obtener_ruta_recurso(os.path.join("assets", "flask_clean_feather.png"))
+            if not os.path.exists(ruta_flask):
+                ruta_flask = obtener_ruta_recurso(os.path.join("assets", "flask_clean_alpha.png"))
+            if os.path.exists(ruta_flask):
+                self.img_flask = ctk.CTkImage(light_image=Image.open(ruta_flask), size=(240, 150))
+        except Exception:
+            pass
+
+        # Componente de Dropdown Flotante Moderno (Estilo Ejecutivo Claro)
         class ModernFloatingDropdown(ctk.CTkFrame):
             def __init__(self, master, app, procesos):
                 super().__init__(master, fg_color="transparent")
                 self.app = app
                 self.procesos = procesos
                 self.popup = None
+                self._bind_ids = []
 
-                # Botón Principal Azul Llamativo
+                # Botón Principal Claro y Elegante
                 self.btn_principal = ctk.CTkButton(
                     self,
                     text=f"{self.app._obtener_icono_proceso(self.app.proceso_seleccionado)}  {self.app.proceso_seleccionado}   ▼",
-                    font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-                    fg_color="#2563EB",
-                    hover_color="#1D4ED8",
-                    border_color="#3B82F6",
+                    font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+                    fg_color="#FFFFFF",
+                    hover_color="#F5F3FF",
+                    border_color="#DDD6FE",
                     border_width=1,
-                    text_color="#FFFFFF",
-                    corner_radius=10,
-                    height=44,
+                    text_color="#1E1B4B",
+                    corner_radius=8,
+                    height=38,
                     anchor="w",
                     command=self.toggle
                 )
-                self.btn_principal.pack(fill="x", padx=16, pady=(0, 4))
+                self.btn_principal.pack(fill="x", pady=(2, 2))
 
             def toggle(self):
                 if self.app.en_ejecucion:
@@ -2543,39 +2957,35 @@ Encabezados requeridos en la Fila 1:
                     self.abrir()
 
             def abrir(self):
-                if self.popup and self.popup.winfo_exists():
-                    try:
-                        self.popup.destroy()
-                    except Exception:
-                        pass
+                self.cerrar()
 
                 self.btn_principal.update_idletasks()
                 x = self.btn_principal.winfo_rootx()
                 y = self.btn_principal.winfo_rooty() + self.btn_principal.winfo_height() + 4
-                ancho = self.btn_principal.winfo_width()
-                alto_total = min(len(self.procesos) * 52 + 16, 260)
+                ancho = max(self.btn_principal.winfo_width(), 460)
+                alto_total = min(len(self.procesos) * 48 + 14, 280)
 
                 self.popup = ctk.CTkToplevel(self.app)
                 self.popup.overrideredirect(True)
-                self.popup.attributes("-topmost", True)
+                self.popup.transient(self.app)
                 self.popup.geometry(f"{ancho}x{alto_total}+{x}+{y}")
-                self.popup.configure(fg_color="#090D16")
+                self.popup.configure(fg_color="#FFFFFF")
 
                 frame_borde = ctk.CTkFrame(
                     self.popup,
-                    fg_color="#090D16",
-                    corner_radius=12,
+                    fg_color="#FFFFFF",
+                    corner_radius=10,
                     border_width=2,
-                    border_color="#3B82F6"
+                    border_color="#7D51E9"
                 )
                 frame_borde.pack(fill="both", expand=True)
 
                 scroll_frame = ctk.CTkScrollableFrame(
                     frame_borde,
                     fg_color="transparent",
-                    corner_radius=10,
-                    scrollbar_button_color="#334155",
-                    scrollbar_button_hover_color="#3B82F6"
+                    corner_radius=8,
+                    scrollbar_button_color="#DDD6FE",
+                    scrollbar_button_hover_color="#C4B5FD"
                 )
                 scroll_frame.pack(fill="both", expand=True, padx=4, pady=4)
 
@@ -2586,25 +2996,45 @@ Encabezados requeridos en la Fila 1:
 
                     btn_item = ctk.CTkButton(
                         scroll_frame,
-                        text=f"  {icono}  {proc}{'  ✓' if es_activo else ''}\n     📄 Hoja en Excel: {hoja}",
-                        font=ctk.CTkFont(family="Segoe UI", size=12),
-                        fg_color="#1D4ED8" if es_activo else "#090D16",
-                        hover_color="#1E293B",
-                        border_color="#38BDF8" if es_activo else "#1E293B",
+                        text=f"  {icono}  {proc}{'  ✓' if es_activo else ''}\n     📄 Hoja: {hoja}",
+                        font=ctk.CTkFont(family="Segoe UI", size=11),
+                        fg_color="#F5F3FF" if es_activo else "#FFFFFF",
+                        hover_color="#EDE9FE",
+                        border_color="#C4B5FD" if es_activo else "#E2E8F0",
                         border_width=1 if es_activo else 0,
-                        text_color="#FFFFFF" if es_activo else "#CBD5E1",
-                        corner_radius=8,
-                        height=42,
+                        text_color="#6D28D9" if es_activo else "#334155",
+                        corner_radius=6,
+                        height=40,
                         anchor="w",
                         command=lambda p=proc: self.seleccionar(p)
                     )
-                    btn_item.pack(fill="x", padx=4, pady=3)
+                    btn_item.pack(fill="x", padx=3, pady=2)
 
                 self.btn_principal.configure(
                     text=f"{self.app._obtener_icono_proceso(self.app.proceso_seleccionado)}  {self.app.proceso_seleccionado}   ▲"
                 )
 
-                self.app.bind("<Button-1>", self._on_app_click, add="+")
+                self._bind_app_events()
+
+            def _bind_app_events(self):
+                self._unbind_app_events()
+                b1 = self.app.bind("<Button-1>", self._on_app_click, add="+")
+                b2 = self.app.bind("<Configure>", self._on_app_move, add="+")
+                b3 = self.app.bind("<Unmap>", lambda e: self.cerrar(), add="+")
+                b4 = self.app.bind("<Escape>", lambda e: self.cerrar(), add="+")
+                self._bind_ids = [("<Button-1>", b1), ("<Configure>", b2), ("<Unmap>", b3), ("<Escape>", b4)]
+
+            def _unbind_app_events(self):
+                for seq, bid in self._bind_ids:
+                    try:
+                        self.app.unbind(seq, bid)
+                    except Exception:
+                        pass
+                self._bind_ids = []
+
+            def _on_app_move(self, event):
+                if event.widget == self.app:
+                    self.cerrar()
 
             def _on_app_click(self, event):
                 if not self.popup or not self.popup.winfo_exists():
@@ -2628,15 +3058,19 @@ Encabezados requeridos en la Fila 1:
                     pass
 
             def cerrar(self):
+                self._unbind_app_events()
                 if self.popup and self.popup.winfo_exists():
                     try:
                         self.popup.destroy()
                     except Exception:
                         pass
                     self.popup = None
-                self.btn_principal.configure(
-                    text=f"{self.app._obtener_icono_proceso(self.app.proceso_seleccionado)}  {self.app.proceso_seleccionado}   ▼"
-                )
+                try:
+                    self.btn_principal.configure(
+                        text=f"{self.app._obtener_icono_proceso(self.app.proceso_seleccionado)}  {self.app.proceso_seleccionado}   ▼"
+                    )
+                except Exception:
+                    pass
 
             def seleccionar(self, proc):
                 self.app.seleccionar_proceso(proc)
@@ -2667,274 +3101,808 @@ Encabezados requeridos en la Fila 1:
 
         self.opt_proceso = SelectorProcesoProxy(self)
 
-        # 1. HEADER / BARRA DE TÍTULO PRINCIPAL (PREMIUM GLASSMORPHIC)
-        frame_header = ctk.CTkFrame(self, fg_color="#0F172A", corner_radius=16, border_width=1, border_color="#1E293B")
-        frame_header.grid(row=0, column=0, padx=18, pady=(16, 6), sticky="ew")
-        frame_header.grid_columnconfigure(0, weight=1)
-
-        frame_header_text = ctk.CTkFrame(frame_header, fg_color="transparent")
-        frame_header_text.grid(row=0, column=0, padx=16, pady=10, sticky="w")
-
-        lbl_title = ctk.CTkLabel(
-            frame_header_text,
-            text="⚡ AUTOMATIZADOR INVIMA PRO",
-            font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
-            text_color="#F8FAFC"
+        # ======================================================================
+        # 1. CABECERA PRINCIPAL SUPERIOR (MC PROCESOS INTEGRALES - TIPOGRAFÍA NATIVA NÍTIDA)
+        # ======================================================================
+        frame_header = ctk.CTkFrame(
+            self,
+            fg_color="#FFFFFF",
+            corner_radius=12,
+            border_width=0
         )
-        lbl_title.pack(anchor="w")
+        frame_header.pack(fill="x", padx=14, pady=(10, 8))
+        frame_header.grid_columnconfigure(1, weight=1)
 
-        lbl_subtitle = ctk.CTkLabel(
-            frame_header_text,
-            text="Motor Inteligente Multi-Proceso • Masterdent Soft",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#94A3B8"
+        # 1A. Isotipo / Logotipo Oficial y Marca Corporativa
+        frame_brand = ctk.CTkFrame(frame_header, fg_color="transparent")
+        frame_brand.grid(row=0, column=0, padx=12, pady=5, sticky="w")
+
+        if getattr(self, 'img_logo_mc', None):
+            lbl_logo_mc = ctk.CTkLabel(frame_brand, image=self.img_logo_mc, text="")
+            lbl_logo_mc.pack(side="left", padx=(0, 10))
+
+        frame_brand_text = ctk.CTkFrame(frame_brand, fg_color="transparent")
+        frame_brand_text.pack(side="left")
+
+        # Fila 1: MC PROCESOS INTEGRALES
+        row_title_brand = ctk.CTkFrame(frame_brand_text, fg_color="transparent")
+        row_title_brand.pack(anchor="w")
+
+        lbl_mc = ctk.CTkLabel(
+            row_title_brand,
+            text="MC",
+            font=ctk.CTkFont(family="Segoe UI", size=17, weight="bold"),
+            text_color="#DC2626"
         )
-        lbl_subtitle.pack(anchor="w")
+        lbl_mc.pack(side="left", padx=(0, 5))
 
+        lbl_pi = ctk.CTkLabel(
+            row_title_brand,
+            text="PROCESOS INTEGRALES",
+            font=ctk.CTkFont(family="Segoe UI", size=17, weight="bold"),
+            text_color="#6D28D9"
+        )
+        lbl_pi.pack(side="left")
+
+        # Fila 2: Subtítulo
+        lbl_brand_sub = ctk.CTkLabel(
+            frame_brand_text,
+            text="Automatización & Inteligencia Sanitaria",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#1E293B"
+        )
+        lbl_brand_sub.pack(anchor="w", pady=(1, 1))
+
+        # Fila 3: Servicios y Alcance
+        lbl_brand_scope = ctk.CTkLabel(
+            frame_brand_text,
+            text="Trámites · Análisis técnico · Certificaciones · Auditorías · Sistemas de gestión",
+            font=ctk.CTkFont(family="Segoe UI", size=9),
+            text_color="#64748B"
+        )
+        lbl_brand_scope.pack(anchor="w")
+
+        # 1B. Lema Central: "Ciencia que impulsa cumplimiento"
+        frame_slogan = ctk.CTkFrame(frame_header, fg_color="transparent")
+        frame_slogan.grid(row=0, column=1, padx=12, pady=5, sticky="e")
+
+        lbl_slogan_top = ctk.CTkLabel(
+            frame_slogan,
+            text="Ciencia que\nimpulsa cumplimiento",
+            font=ctk.CTkFont(family="Segoe UI", size=11, slant="italic", weight="bold"),
+            text_color="#1E1B4B",
+            justify="right"
+        )
+        lbl_slogan_top.pack(anchor="e")
+
+        frame_accent_line = ctk.CTkFrame(frame_slogan, fg_color="#DC2626", height=2, width=120, corner_radius=1)
+        frame_accent_line.pack(anchor="e", pady=(2, 0))
+
+        # 1C. Acciones Rápidas (Estado, Manual, Chrome, Ayuda)
         frame_header_actions = ctk.CTkFrame(frame_header, fg_color="transparent")
-        frame_header_actions.grid(row=0, column=1, padx=16, pady=10, sticky="e")
+        frame_header_actions.grid(row=0, column=2, padx=12, pady=5, sticky="e")
+
+        self.badge_estado = ctk.CTkLabel(
+            frame_header_actions,
+            text="● Sistema listo",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#059669",
+            fg_color="#ECFDF5",
+            corner_radius=12,
+            padx=14,
+            pady=4
+        )
+        self.badge_estado.pack(side="left", padx=3)
 
         btn_manual = ctk.CTkButton(
             frame_header_actions,
             text="📖 Manual",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            fg_color="#4F46E5",
-            hover_color="#4338CA",
-            height=32,
-            width=90,
-            corner_radius=8,
+            fg_color="#FFFFFF",
+            hover_color="#F5F3FF",
+            text_color="#334155",
+            border_color="#CBD5E1",
+            border_width=1,
+            height=28,
+            width=80,
+            corner_radius=6,
             command=self.mostrar_modal_manual
         )
-        btn_manual.pack(side="left", padx=4)
+        btn_manual.pack(side="left", padx=2)
 
         btn_chrome = ctk.CTkButton(
             frame_header_actions,
             text="🌐 Chrome Bot",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            fg_color="#0284C7",
-            hover_color="#0369A1",
-            height=32,
-            width=110,
-            corner_radius=8,
+            fg_color="#FFFFFF",
+            hover_color="#F5F3FF",
+            text_color="#334155",
+            border_color="#CBD5E1",
+            border_width=1,
+            height=28,
+            width=100,
+            corner_radius=6,
             command=lambda: abrir_chrome_automatizado(self)
         )
-        btn_chrome.pack(side="left", padx=4)
+        btn_chrome.pack(side="left", padx=2)
 
-        self.badge_estado = ctk.CTkLabel(
+        btn_ayuda = ctk.CTkButton(
             frame_header_actions,
-            text="● EN ESPERA",
+            text="❓ Ayuda",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#94A3B8",
-            fg_color="#1E293B",
-            corner_radius=8,
-            padx=10,
-            pady=5
+            fg_color="#FFFFFF",
+            hover_color="#F5F3FF",
+            text_color="#334155",
+            border_color="#CBD5E1",
+            border_width=1,
+            height=28,
+            width=75,
+            corner_radius=6,
+            command=self.mostrar_modal_ayuda
         )
-        self.badge_estado.pack(side="left", padx=(4, 0))
+        btn_ayuda.pack(side="left", padx=2)
 
-        # 2. SELECTOR DE FORMATO / PROCESO (MODERN DROPDOWN MENU)
-        frame_proceso = ctk.CTkFrame(self, fg_color="#0F172A", corner_radius=16, border_width=1, border_color="#1E293B")
-        frame_proceso.grid(row=1, column=0, padx=18, pady=4, sticky="ew")
-        frame_proceso.grid_columnconfigure(0, weight=1)
+        # ======================================================================
+        # 2. CONTENEDOR PRINCIPAL EN DOS COLUMNAS INDEPENDIENTES
+        # ======================================================================
+        frame_main = ctk.CTkFrame(self, fg_color="transparent")
+        frame_main.pack(fill="both", expand=True, padx=14, pady=(0, 10))
+        frame_main.grid_columnconfigure(0, weight=3)
+        frame_main.grid_columnconfigure(1, weight=1)
+        frame_main.grid_rowconfigure(0, weight=1)
 
-        frame_proceso_header = ctk.CTkFrame(frame_proceso, fg_color="transparent")
-        frame_proceso_header.pack(fill="x", padx=16, pady=(10, 4))
+        col_left = ctk.CTkFrame(frame_main, fg_color="transparent")
+        col_left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
 
-        lbl_sec_proceso = ctk.CTkLabel(
-            frame_proceso_header,
-            text="📋 FORMATO A REGISTRAR:",
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            text_color="#E2E8F0"
+        col_right = ctk.CTkFrame(frame_main, fg_color="transparent")
+        col_right.grid(row=0, column=1, sticky="nsew")
+
+        # ----------------------------------------------------------------------
+        # 2A. TARJETA 1 (COL IZQ): CONTROLES Y CONFIGURACIÓN DEL TRÁMITE
+        # ----------------------------------------------------------------------
+        card_controls = ctk.CTkFrame(
+            col_left,
+            fg_color="#FFFFFF",
+            corner_radius=12,
+            border_width=0
         )
-        lbl_sec_proceso.pack(side="left")
+        card_controls.pack(fill="x", pady=(0, 8))
+        card_controls.grid_columnconfigure(0, weight=1)
 
-        lbl_sec_hint = ctk.CTkLabel(
-            frame_proceso_header,
-            text="(Haz clic para desplegar opciones)",
+        # Banner Interno Automatizador INVIMA con Ícono
+        frame_bot_title = ctk.CTkFrame(card_controls, fg_color="transparent")
+        frame_bot_title.grid(row=0, column=0, padx=12, pady=(6, 2), sticky="ew")
+        frame_bot_title.grid_columnconfigure(0, weight=1)
+
+        frame_bot_title_left = ctk.CTkFrame(frame_bot_title, fg_color="transparent")
+        frame_bot_title_left.pack(side="left")
+
+        if getattr(self, 'img_doc_badge', None):
+            lbl_doc_badge_img = ctk.CTkLabel(frame_bot_title_left, image=self.img_doc_badge, text="")
+            lbl_doc_badge_img.pack(side="left", padx=(0, 8))
+
+        frame_bot_text_box = ctk.CTkFrame(frame_bot_title_left, fg_color="transparent")
+        frame_bot_text_box.pack(side="left")
+
+        lbl_app_name = ctk.CTkLabel(
+            frame_bot_text_box,
+            text="Automatizador INVIMA",
+            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+            text_color="#1E1B4B"
+        )
+        lbl_app_name.pack(anchor="w")
+
+        lbl_app_desc = ctk.CTkLabel(
+            frame_bot_text_box,
+            text="Digitaliza, valida y registra la información de tus trámites de forma ágil y segura",
             font=ctk.CTkFont(family="Segoe UI", size=10),
             text_color="#64748B"
         )
-        lbl_sec_hint.pack(side="left", padx=(6, 0))
+        lbl_app_desc.pack(anchor="w")
 
-        # Instancia del Dropdown Flotante Moderno
-        self.dropdown_menu = ModernFloatingDropdown(frame_proceso, self, lista_procesos)
-        self.dropdown_menu.pack(fill="x", pady=(0, 4))
+        self.badge_modulo_activo = ctk.CTkLabel(
+            frame_bot_title,
+            text="● Módulo activo",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#059669",
+            fg_color="#ECFDF5",
+            corner_radius=12,
+            padx=14,
+            pady=4
+        )
+        self.badge_modulo_activo.pack(side="right")
 
-        # Banner informativo de la hoja y campos
-        frame_info_hoja = ctk.CTkFrame(frame_proceso, fg_color="#1E293B", corner_radius=8)
-        frame_info_hoja.pack(fill="x", padx=16, pady=(0, 10))
+        # Barra de 3 Pasos (Wizard Visual Dinámico)
+        frame_wizard = ctk.CTkFrame(card_controls, fg_color="#F8FAFC", corner_radius=8, border_width=0)
+        frame_wizard.grid(row=1, column=0, padx=12, pady=(2, 3), sticky="ew")
+        frame_wizard.grid_columnconfigure((0, 1, 2), weight=1)
+
+        # Paso 1: Selecciona el proceso
+        frame_s1 = ctk.CTkFrame(frame_wizard, fg_color="transparent")
+        frame_s1.grid(row=0, column=0, padx=8, pady=4, sticky="w")
+        self.badge_step1 = ctk.CTkLabel(
+            frame_s1,
+            image=self.img_s1_active if self.img_s1_active else None,
+            text="" if self.img_s1_active else "✓",
+            width=28,
+            height=28
+        )
+        self.badge_step1.pack(side="left", padx=(0, 6))
+        f_s1_txt = ctk.CTkFrame(frame_s1, fg_color="transparent")
+        f_s1_txt.pack(side="left")
+        ctk.CTkLabel(f_s1_txt, text="1. Selecciona el proceso", font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"), text_color="#1E1B4B").pack(anchor="w")
+        ctk.CTkLabel(f_s1_txt, text="Elige el requisito a procesar", font=ctk.CTkFont(family="Segoe UI", size=9), text_color="#64748B").pack(anchor="w")
+
+        # Paso 2: Carga tu archivo
+        frame_s2 = ctk.CTkFrame(frame_wizard, fg_color="transparent")
+        frame_s2.grid(row=0, column=1, padx=8, pady=4, sticky="w")
+        self.badge_step2 = ctk.CTkLabel(
+            frame_s2,
+            image=self.img_s2_inactive if self.img_s2_inactive else None,
+            text="" if self.img_s2_inactive else "2",
+            width=28,
+            height=28
+        )
+        self.badge_step2.pack(side="left", padx=(0, 6))
+        f_s2_txt = ctk.CTkFrame(frame_s2, fg_color="transparent")
+        f_s2_txt.pack(side="left")
+        ctk.CTkLabel(f_s2_txt, text="2. Carga tu archivo", font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"), text_color="#1E1B4B").pack(anchor="w")
+        ctk.CTkLabel(f_s2_txt, text="Usa la plantilla oficial Excel", font=ctk.CTkFont(family="Segoe UI", size=9), text_color="#64748B").pack(anchor="w")
+
+        # Paso 3: Inicia automatización
+        frame_s3 = ctk.CTkFrame(frame_wizard, fg_color="transparent")
+        frame_s3.grid(row=0, column=2, padx=8, pady=4, sticky="w")
+        self.badge_step3 = ctk.CTkLabel(
+            frame_s3,
+            image=self.img_s3_inactive if self.img_s3_inactive else None,
+            text="" if self.img_s3_inactive else "3",
+            width=28,
+            height=28
+        )
+        self.badge_step3.pack(side="left", padx=(0, 6))
+        f_s3_txt = ctk.CTkFrame(frame_s3, fg_color="transparent")
+        f_s3_txt.pack(side="left")
+        ctk.CTkLabel(f_s3_txt, text="3. Inicia automatización", font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"), text_color="#1E1B4B").pack(anchor="w")
+        ctk.CTkLabel(f_s3_txt, text="El sistema procesará en INVIMA", font=ctk.CTkFont(family="Segoe UI", size=9), text_color="#64748B").pack(anchor="w")
+
+        # FILA: DESCARGA DE PLANTILLA (IZQUIERDA) + REQUISITO A PROCESAR (DERECHA)
+        frame_proc_row = ctk.CTkFrame(card_controls, fg_color="transparent")
+        frame_proc_row.grid(row=2, column=0, padx=12, pady=(2, 3), sticky="ew")
+        frame_proc_row.grid_columnconfigure(0, weight=2)
+        frame_proc_row.grid_columnconfigure(1, weight=3)
+
+        # Columna Izquierda: Tarjeta de Descarga de Plantilla Oficial
+        frame_template_card = ctk.CTkFrame(frame_proc_row, fg_color="#FAF5FF", corner_radius=8, border_width=0)
+        frame_template_card.grid(row=0, column=0, padx=(0, 4), sticky="nsew")
+
+        lbl_tmpl_title = ctk.CTkLabel(
+            frame_template_card,
+            text="📥 Plantilla de Trabajo Oficial",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#6D28D9"
+        )
+        lbl_tmpl_title.pack(anchor="w", padx=10, pady=(4, 1))
+
+        lbl_tmpl_desc = ctk.CTkLabel(
+            frame_template_card,
+            text="Excel prediseñado con las 6 hojas y columnas exactas.",
+            font=ctk.CTkFont(family="Segoe UI", size=9),
+            text_color="#7C3AED"
+        )
+        lbl_tmpl_desc.pack(anchor="w", padx=10, pady=(0, 2))
+
+        btn_download_tmpl = ctk.CTkButton(
+            frame_template_card,
+            text="💾 Descargar Plantilla Excel",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            fg_color="#7D51E9",
+            hover_color="#6D28D9",
+            text_color="#FFFFFF",
+            height=28,
+            corner_radius=6,
+            command=self.generar_o_descargar_plantilla
+        )
+        btn_download_tmpl.pack(fill="x", padx=8, pady=(1, 4))
+
+        # Columna Derecha: Requisito a Procesar
+        frame_proc_right = ctk.CTkFrame(frame_proc_row, fg_color="#F8FAFC", corner_radius=8, border_width=0)
+        frame_proc_right.grid(row=0, column=1, padx=(4, 0), sticky="nsew")
+
+        lbl_req_title = ctk.CTkLabel(
+            frame_proc_right,
+            text="📋 REQUISITO A PROCESAR",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#1E1B4B"
+        )
+        lbl_req_title.pack(anchor="w", padx=10, pady=(4, 1))
+
+        self.dropdown_menu = ModernFloatingDropdown(frame_proc_right, self, lista_procesos)
+        self.dropdown_menu.pack(fill="x", padx=8, pady=(0, 1))
+
+        frame_info_hoja_box = ctk.CTkFrame(frame_proc_right, fg_color="transparent")
+        frame_info_hoja_box.pack(fill="x", padx=10, pady=(0, 4))
 
         self.lbl_info_hoja = ctk.CTkLabel(
-            frame_info_hoja,
+            frame_info_hoja_box,
             text=f"📌 Hoja en Excel: '{self._obtener_hoja_actual()}'",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#38BDF8",
-            padx=10,
-            pady=5
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#7D51E9"
         )
         self.lbl_info_hoja.pack(side="left")
 
         self.lbl_info_campos = ctk.CTkLabel(
-            frame_info_hoja,
+            frame_info_hoja_box,
             text=f"🧪 {self._obtener_info_campos()}",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#34D399",
-            padx=10,
-            pady=5
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color="#059669"
         )
         self.lbl_info_campos.pack(side="right")
 
-        # 3. PANEL DE SELECCIÓN DE ARCHIVO EXCEL
-        frame_top = ctk.CTkFrame(self, fg_color="#0F172A", corner_radius=16, border_width=1, border_color="#1E293B")
-        frame_top.grid(row=2, column=0, padx=18, pady=4, sticky="ew")
-        frame_top.grid_columnconfigure(0, weight=1)
+        # FILA: CARGA DE ARCHIVO EXCEL
+        frame_file_card = ctk.CTkFrame(card_controls, fg_color="#F8FAFC", corner_radius=8, border_width=0)
+        frame_file_card.grid(row=3, column=0, padx=12, pady=(2, 3), sticky="ew")
+        frame_file_card.grid_columnconfigure(0, weight=1)
 
-        lbl_sec_archivo = ctk.CTkLabel(
-            frame_top,
-            text="📁 ARCHIVO EXCEL DE ENTRADA:",
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            text_color="#CBD5E1"
+        frame_file_header = ctk.CTkFrame(frame_file_card, fg_color="transparent")
+        frame_file_header.pack(fill="x", padx=10, pady=(4, 1))
+
+        lbl_file_header = ctk.CTkLabel(
+            frame_file_header,
+            text="📁 Archivo Excel de entrada",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#334155"
         )
-        lbl_sec_archivo.grid(row=0, column=0, columnspan=2, padx=16, pady=(10, 2), sticky="w")
+        lbl_file_header.pack(side="left")
+
+        lbl_file_drag_hint = ctk.CTkLabel(
+            frame_file_header,
+            text="Arrastra tu archivo Excel aquí o haz clic para seleccionar",
+            font=ctk.CTkFont(family="Segoe UI", size=9),
+            text_color="#64748B"
+        )
+        lbl_file_drag_hint.pack(side="right")
+
+        frame_file_input = ctk.CTkFrame(frame_file_card, fg_color="transparent")
+        frame_file_input.pack(fill="x", padx=8, pady=(1, 2))
+        frame_file_input.grid_columnconfigure(0, weight=1)
 
         self.entry_path = ctk.CTkEntry(
-            frame_top,
-            placeholder_text="Haz clic en 'Seleccionar Excel' para cargar tu matriz...",
-            font=ctk.CTkFont(family="Segoe UI", size=12),
-            height=36,
-            fg_color="#090D16",
-            border_color="#334155",
-            corner_radius=8
+            frame_file_input,
+            placeholder_text="Haz clic en 'Seleccionar archivo' para cargar tu matriz de datos...",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            height=32,
+            fg_color="#FFFFFF",
+            border_color="#CBD5E1",
+            text_color="#0F172A",
+            corner_radius=6
         )
-        self.entry_path.grid(row=1, column=0, padx=(16, 8), pady=(0, 10), sticky="ew")
+        self.entry_path.grid(row=0, column=0, padx=(0, 6), sticky="ew")
 
         self.btn_browse = ctk.CTkButton(
-            frame_top,
-            text="📂 Seleccionar Excel",
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            fg_color="#3B82F6",
-            hover_color="#2563EB",
-            height=36,
-            corner_radius=8,
+            frame_file_input,
+            text="📂 Seleccionar archivo",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            fg_color="#7D51E9",
+            hover_color="#6D28D9",
+            text_color="#FFFFFF",
+            height=32,
+            corner_radius=6,
             command=self.seleccionar_excel
         )
-        self.btn_browse.grid(row=1, column=1, padx=(0, 16), pady=(0, 10))
+        self.btn_browse.grid(row=0, column=1)
 
-        # 4. PANEL DE CONTROLES Y TELEMETRÍA EN TIEMPO REAL
-        frame_controls = ctk.CTkFrame(self, fg_color="#0F172A", corner_radius=16, border_width=1, border_color="#1E293B")
-        frame_controls.grid(row=3, column=0, padx=18, pady=4, sticky="ew")
-        frame_controls.grid_columnconfigure((0, 1, 2), weight=1)
+        lbl_formats_hint = ctk.CTkLabel(
+            frame_file_card,
+            text="Formatos admitidos: .xlsx · .xls  |  Usa la plantilla oficial para mejores resultados",
+            font=ctk.CTkFont(family="Segoe UI", size=9),
+            text_color="#94A3B8"
+        )
+        lbl_formats_hint.pack(anchor="w", padx=10, pady=(0, 4))
+
+        # FILA: BOTONES DE ACCIÓN (INICIAR, PAUSAR, DETENER)
+        frame_actions = ctk.CTkFrame(card_controls, fg_color="transparent")
+        frame_actions.grid(row=4, column=0, padx=12, pady=(2, 5), sticky="ew")
+        frame_actions.grid_columnconfigure((0, 1, 2), weight=1)
 
         self.btn_comenzar = ctk.CTkButton(
-            frame_controls,
-            text="🚀 Comenzar",
-            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-            fg_color="#10B981",
-            hover_color="#059669",
-            height=40,
-            corner_radius=10,
+            frame_actions,
+            text="▶ Iniciar automatización",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            fg_color="#0DBE8A",
+            hover_color="#0AA779",
+            text_color="#FFFFFF",
+            height=36,
+            corner_radius=6,
             command=self.action_comenzar_reanudar
         )
-        self.btn_comenzar.grid(row=0, column=0, padx=(16, 6), pady=(10, 6), sticky="ew")
+        self.btn_comenzar.grid(row=0, column=0, padx=(0, 4), sticky="ew")
 
         self.btn_pausar = ctk.CTkButton(
-            frame_controls,
-            text="⏸️ Pausar",
-            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-            fg_color="#F59E0B",
-            hover_color="#D97706",
-            height=40,
-            corner_radius=10,
+            frame_actions,
+            text="⏸ Pausar",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            fg_color="#F5C495",
+            hover_color="#EBB682",
+            text_color="#78350F",
+            border_color="#FCD34D",
+            border_width=1,
+            height=36,
+            corner_radius=6,
             state="disabled",
             command=self.action_pausar
         )
-        self.btn_pausar.grid(row=0, column=1, padx=6, pady=(10, 6), sticky="ew")
+        self.btn_pausar.grid(row=0, column=1, padx=2, sticky="ew")
 
         self.btn_detener = ctk.CTkButton(
-            frame_controls,
-            text="⏹️ Detener",
-            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-            fg_color="#EF4444",
-            hover_color="#DC2626",
-            height=40,
-            corner_radius=10,
+            frame_actions,
+            text="⏹ Detener",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            fg_color="#EE7B9D",
+            hover_color="#E06A8D",
+            text_color="#831843",
+            border_color="#FCA5A5",
+            border_width=1,
+            height=36,
+            corner_radius=6,
             state="disabled",
             command=self.action_detener
         )
-        self.btn_detener.grid(row=0, column=2, padx=(6, 16), pady=(10, 6), sticky="ew")
+        self.btn_detener.grid(row=0, column=2, padx=(4, 0), sticky="ew")
 
-        self.progress_bar = ctk.CTkProgressBar(
-            frame_controls,
-            height=8,
-            corner_radius=4,
-            progress_color="#10B981",
-            fg_color="#1E293B"
+        # ----------------------------------------------------------------------
+        # 2B. TARJETA 2 (COL IZQ): EJECUCIÓN EN PROCESO Y TELEMETRÍA
+        # ----------------------------------------------------------------------
+        card_telemetry = ctk.CTkFrame(
+            col_left,
+            fg_color="#FFFFFF",
+            corner_radius=12,
+            border_width=0
         )
-        self.progress_bar.grid(row=1, column=0, columnspan=3, padx=16, pady=(0, 6), sticky="ew")
-        self.progress_bar.set(0.0)
+        card_telemetry.pack(fill="x", pady=(0, 8))
+        card_telemetry.grid_columnconfigure((0, 1, 2), weight=1)
 
-        frame_metrics = ctk.CTkFrame(frame_controls, fg_color="transparent")
-        frame_metrics.grid(row=2, column=0, columnspan=3, padx=16, pady=(0, 8), sticky="ew")
-        frame_metrics.grid_columnconfigure((0, 1, 2), weight=1)
+        frame_progress_header = ctk.CTkFrame(card_telemetry, fg_color="transparent")
+        frame_progress_header.grid(row=0, column=0, columnspan=3, padx=10, pady=(5, 2), sticky="ew")
+
+        lbl_telemetry_title = ctk.CTkLabel(
+            frame_progress_header,
+            text="📊  Ejecución en proceso",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#1E1B4B"
+        )
+        lbl_telemetry_title.pack(side="left")
+
+        self.lbl_porcentaje = ctk.CTkLabel(
+            frame_progress_header,
+            text="0%",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#FFFFFF",
+            fg_color="#7D51E9",
+            corner_radius=8,
+            padx=8,
+            pady=2
+        )
+        self.lbl_porcentaje.pack(side="right")
 
         self.lbl_metric_filas = ctk.CTkLabel(
-            frame_metrics, text="📊 Progreso: 0 / 0", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94A3B8"
+            frame_progress_header,
+            text="Progreso general: 0 / 0 registros",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color="#64748B"
         )
-        self.lbl_metric_filas.grid(row=0, column=0, sticky="w")
+        self.lbl_metric_filas.pack(side="right", padx=8)
 
-        self.lbl_metric_exitos = ctk.CTkLabel(
-            frame_metrics, text="✅ Éxitos: 0", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#34D399"
+        self.progress_bar = ctk.CTkProgressBar(
+            card_telemetry,
+            height=7,
+            corner_radius=3,
+            progress_color="#0DBE8A",
+            fg_color="#F1F5F9"
         )
-        self.lbl_metric_exitos.grid(row=0, column=1, sticky="n")
+        self.progress_bar.grid(row=1, column=0, columnspan=3, padx=10, pady=(0, 5), sticky="ew")
+        self.progress_bar.set(0.0)
 
-        self.lbl_metric_errores = ctk.CTkLabel(
-            frame_metrics, text="❌ Errores: 0", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#F87171"
+        # 3 Tarjetas de Métricas Ejecutivas
+        frame_cards = ctk.CTkFrame(card_telemetry, fg_color="transparent")
+        frame_cards.grid(row=2, column=0, columnspan=3, padx=8, pady=(0, 5), sticky="ew")
+        frame_cards.grid_columnconfigure((0, 1, 2), weight=1)
+
+        card_p = ctk.CTkFrame(frame_cards, fg_color="#F8FAFC", corner_radius=6, border_width=0)
+        card_p.grid(row=0, column=0, padx=2, sticky="ew")
+        lbl_p_tag = ctk.CTkLabel(card_p, text="📄 Total procesados", font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"), text_color="#64748B")
+        lbl_p_tag.pack(anchor="w", padx=8, pady=(4, 0))
+        self.lbl_metric_procesados_val = ctk.CTkLabel(card_p, text="0", font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"), text_color="#1E1B4B")
+        self.lbl_metric_procesados_val.pack(anchor="w", padx=8, pady=(0, 4))
+
+        card_ok = ctk.CTkFrame(frame_cards, fg_color="#F0FDF4", corner_radius=6, border_width=0)
+        card_ok.grid(row=0, column=1, padx=2, sticky="ew")
+        lbl_ok_tag = ctk.CTkLabel(card_ok, text="✅ Guardados con éxito", font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"), text_color="#15803D")
+        lbl_ok_tag.pack(anchor="w", padx=8, pady=(4, 0))
+        self.lbl_metric_exitos_val = ctk.CTkLabel(card_ok, text="0", font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"), text_color="#059669")
+        self.lbl_metric_exitos_val.pack(anchor="w", padx=8, pady=(0, 4))
+
+        card_err = ctk.CTkFrame(frame_cards, fg_color="#FEF2F2", corner_radius=6, border_width=0)
+        card_err.grid(row=0, column=2, padx=2, sticky="ew")
+        lbl_err_tag = ctk.CTkLabel(card_err, text="⚠️ Alertas / Revisión", font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"), text_color="#B91C1C")
+        lbl_err_tag.pack(anchor="w", padx=8, pady=(4, 0))
+        self.lbl_metric_errores_val = ctk.CTkLabel(card_err, text="0", font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"), text_color="#DC2626")
+        self.lbl_metric_errores_val.pack(anchor="w", padx=8, pady=(0, 4))
+
+        self.lbl_metric_exitos = self.lbl_metric_exitos_val
+        self.lbl_metric_errores = self.lbl_metric_errores_val
+
+        # ----------------------------------------------------------------------
+        # 2C. TARJETA 3 (COL IZQ): CONSOLA DE TRAZABILIDAD (MÁXIMO ESPACIO VERTICAL)
+        # ----------------------------------------------------------------------
+        card_log = ctk.CTkFrame(
+            col_left,
+            fg_color="#FFFFFF",
+            corner_radius=12,
+            border_width=0
         )
-        self.lbl_metric_errores.grid(row=0, column=2, sticky="e")
+        card_log.pack(fill="both", expand=True, pady=0)
+        card_log.grid_columnconfigure(0, weight=1)
+        card_log.grid_rowconfigure(1, weight=1)
 
-        # 5. TERMINAL / CONSOLA DE EVENTOS
-        frame_log = ctk.CTkFrame(self, fg_color="#0F172A", corner_radius=16, border_width=1, border_color="#1E293B")
-        frame_log.grid(row=4, column=0, padx=18, pady=(4, 14), sticky="nsew")
-        frame_log.grid_columnconfigure(0, weight=1)
-        frame_log.grid_rowconfigure(1, weight=1)
+        frame_log_header = ctk.CTkFrame(card_log, fg_color="transparent")
+        frame_log_header.grid(row=0, column=0, padx=8, pady=(4, 2), sticky="ew")
 
         lbl_log_title = ctk.CTkLabel(
-            frame_log,
-            text="💻 Consola de Registros y Eventos en Vivo",
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            text_color="#94A3B8"
+            frame_log_header,
+            text="📋 Trazabilidad del proceso",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#1E1B4B"
         )
-        lbl_log_title.grid(row=0, column=0, padx=16, pady=(8, 2), sticky="w")
+        lbl_log_title.pack(side="left")
+
+        btn_limpiar = ctk.CTkButton(
+            frame_log_header,
+            text="🗑 Limpiar",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            fg_color="#F1F5F9",
+            hover_color="#E2E8F0",
+            text_color="#475569",
+            border_color="#CBD5E1",
+            border_width=1,
+            height=22,
+            width=60,
+            corner_radius=4,
+            command=self.limpiar_consola
+        )
+        btn_limpiar.pack(side="right", padx=(4, 0))
+
+        btn_export = ctk.CTkButton(
+            frame_log_header,
+            text="📥 Exportar reporte",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            fg_color="#F1F5F9",
+            hover_color="#E2E8F0",
+            text_color="#475569",
+            border_color="#CBD5E1",
+            border_width=1,
+            height=22,
+            width=100,
+            corner_radius=4,
+            command=self.exportar_reporte
+        )
+        btn_export.pack(side="right")
 
         self.txt_log = ctk.CTkTextbox(
-            frame_log,
-            font=ctk.CTkFont(family="Consolas", size=11),
-            fg_color="#030712",
+            card_log,
+            font=ctk.CTkFont(family="Consolas", size=10),
+            fg_color="#0F172A",
             text_color="#38BDF8",
-            corner_radius=10,
-            border_width=1,
-            border_color="#1E293B"
+            corner_radius=6,
+            border_width=0
         )
-        self.txt_log.grid(row=1, column=0, padx=12, pady=(0, 10), sticky="nsew")
+        self.txt_log.grid(row=1, column=0, padx=6, pady=(0, 6), sticky="nsew")
+
+        # ----------------------------------------------------------------------
+        # 2D. TARJETAS DERECHAS (Servicios MC + Ayuda Flotante Compacta)
+        # ----------------------------------------------------------------------
+
+        # 1. Tarjeta Blanca de Servicios MC
+        frame_services_card = ctk.CTkFrame(
+            col_right,
+            fg_color="#FFFFFF",
+            corner_radius=12,
+            border_width=0
+        )
+        frame_services_card.pack(fill="x", pady=(0, 8))
+
+        # Título y Subtítulo de la Sección de Servicios
+        lbl_side_title = ctk.CTkLabel(
+            frame_services_card,
+            text="Servicios MC Procesos Integrales",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color="#1E1B4B"
+        )
+        lbl_side_title.pack(anchor="w", padx=10, pady=(6, 0))
+
+        lbl_side_desc = ctk.CTkLabel(
+            frame_services_card,
+            text="Áreas de consultoría y gestión especializada",
+            font=ctk.CTkFont(family="Segoe UI", size=9),
+            text_color="#64748B"
+        )
+        lbl_side_desc.pack(anchor="w", padx=10, pady=(0, 3))
+
+        # Lista de 5 Servicios
+        servicios_data = [
+            ("srv_tramites", "Trámites sanitarios", "Cosméticos, dispositivos médicos, aseo y más"),
+            ("srv_analisis", "Análisis técnicos", "Soporte científico y regulatorio"),
+            ("srv_certificacion", "Certificación de plantas", "BPM e ISO 22716"),
+            ("srv_auditorias", "Auditorías internas", "Diagnóstico y planes de acción"),
+            ("srv_automatizacion", "Diseño y automatización", "Sistemas de gestión más eficientes")
+        ]
+
+        for icon_key, titulo, desc in servicios_data:
+            card_srv = ctk.CTkFrame(
+                frame_services_card,
+                fg_color="#F8FAFC",
+                corner_radius=6,
+                border_width=0
+            )
+            card_srv.pack(fill="x", padx=6, pady=2)
+
+            row_srv = ctk.CTkFrame(card_srv, fg_color="transparent")
+            row_srv.pack(fill="x", padx=6, pady=3)
+            row_srv.grid_columnconfigure(1, weight=1)
+
+            img_ico = self.iconos_servicios.get(icon_key)
+            if img_ico:
+                lbl_ico = ctk.CTkLabel(row_srv, image=img_ico, text="")
+                lbl_ico.grid(row=0, column=0, rowspan=2, padx=(0, 8), sticky="nw")
+
+            col_pos = 1 if img_ico else 0
+            lbl_t = ctk.CTkLabel(
+                row_srv,
+                text=titulo,
+                font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+                text_color="#1E1B4B",
+                anchor="w"
+            )
+            lbl_t.grid(row=0, column=col_pos, sticky="w")
+
+            lbl_d = ctk.CTkLabel(
+                row_srv,
+                text=desc,
+                font=ctk.CTkFont(family="Segoe UI", size=9),
+                text_color="#64748B",
+                wraplength=190,
+                justify="left",
+                anchor="w"
+            )
+            lbl_d.grid(row=1, column=col_pos, sticky="w", pady=(1, 0))
+
+        # Frase: "Tu aliado en la ruta regulatoria" con línea roja
+        frame_slogan_mid = ctk.CTkFrame(frame_services_card, fg_color="transparent")
+        frame_slogan_mid.pack(pady=(4, 6))
+
+        lbl_slogan_mid = ctk.CTkLabel(
+            frame_slogan_mid,
+            text="Tu aliado en la ruta regulatoria",
+            font=ctk.CTkFont(family="Segoe UI", size=11, slant="italic", weight="bold"),
+            text_color="#1E1B4B"
+        )
+        lbl_slogan_mid.pack(anchor="center")
+
+        frame_accent_mid = ctk.CTkFrame(frame_slogan_mid, fg_color="#DC2626", height=2, width=130, corner_radius=1)
+        frame_accent_mid.pack(anchor="center", pady=(2, 0))
+
+        # 2. Tarjeta Flotante: "¿Necesitas ayuda?" (Compacta)
+        card_help_floating = ctk.CTkFrame(
+            col_right,
+            fg_color="#FFFFFF",
+            corner_radius=12,
+            border_width=0
+        )
+        card_help_floating.pack(fill="x", pady=0)
+
+        lbl_help_h = ctk.CTkLabel(
+            card_help_floating,
+            text="🎧 ¿Necesitas ayuda?",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#5B21B6"
+        )
+        lbl_help_h.pack(anchor="w", padx=10, pady=(6, 1))
+
+        lbl_help_p = ctk.CTkLabel(
+            card_help_floating,
+            text="Nuestro equipo especializado te acompaña en cada proceso.",
+            font=ctk.CTkFont(family="Segoe UI", size=9),
+            text_color="#7C3AED",
+            wraplength=240,
+            justify="left"
+        )
+        lbl_help_p.pack(anchor="w", padx=10, pady=(0, 4))
+
+        btn_contact = ctk.CTkButton(
+            card_help_floating,
+            text="💬 Contactar soporte",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            fg_color="#7D51E9",
+            hover_color="#6D28D9",
+            text_color="#FFFFFF",
+            height=28,
+            corner_radius=6,
+            command=self.mostrar_modal_ayuda
+        )
+        btn_contact.pack(fill="x", padx=10, pady=(0, 6))
+
+        self.actualizar_estado_wizard()
+
+    def actualizar_estado_wizard(self):
+        try:
+            # Paso 1: Selecciona el proceso
+            if getattr(self, 'proceso_seleccionado', None):
+                if self.img_s1_active:
+                    self.badge_step1.configure(image=self.img_s1_active, text="")
+                else:
+                    self.badge_step1.configure(text="✓", fg_color="#7D51E9", text_color="#FFFFFF")
+            else:
+                if self.img_s1_inactive:
+                    self.badge_step1.configure(image=self.img_s1_inactive, text="")
+                else:
+                    self.badge_step1.configure(text="1", fg_color="#FFFFFF", text_color="#7D51E9")
+
+            # Paso 2: Carga tu archivo Excel
+            if getattr(self, 'ruta_excel', None) and os.path.exists(self.ruta_excel):
+                if self.img_s2_active:
+                    self.badge_step2.configure(image=self.img_s2_active, text="")
+                else:
+                    self.badge_step2.configure(text="✓", fg_color="#7D51E9", text_color="#FFFFFF")
+            else:
+                if self.img_s2_inactive:
+                    self.badge_step2.configure(image=self.img_s2_inactive, text="")
+                else:
+                    self.badge_step2.configure(text="2", fg_color="#FFFFFF", text_color="#7D51E9")
+
+            # Paso 3: Inicia automatización
+            if self.en_ejecucion or (self.num_exitos > 0 or self.num_errores > 0):
+                if self.img_s3_active:
+                    self.badge_step3.configure(image=self.img_s3_active, text="")
+                else:
+                    self.badge_step3.configure(text="✓", fg_color="#0DBE8A", text_color="#FFFFFF")
+            else:
+                if self.img_s3_inactive:
+                    self.badge_step3.configure(image=self.img_s3_inactive, text="")
+                else:
+                    self.badge_step3.configure(text="3", fg_color="#FFFFFF", text_color="#7D51E9")
+        except Exception:
+            pass
 
     def on_proceso_changed(self, nuevo_proceso):
         self.cfg = cargar_config_dinamico()
         hoja_req = self._obtener_hoja_actual()
         campos_info = self._obtener_info_campos()
-        self.lbl_info_hoja.configure(text=f"📌 Hoja en Excel: '{hoja_req}'")
-        self.lbl_info_campos.configure(text=f"🧪 {campos_info}")
-        self.log(f"🔄 Proceso cambiado a: '{nuevo_proceso}' (Hoja: '{hoja_req}')", "info")
+        if hasattr(self, 'lbl_info_hoja'):
+            self.lbl_info_hoja.configure(text=f"📌 Hoja en Excel: '{hoja_req}'")
+        if hasattr(self, 'lbl_info_campos'):
+            self.lbl_info_campos.configure(text=f"🧪 {campos_info}")
+        self.log(f"🔄 Requisito seleccionado: '{nuevo_proceso}' (Hoja requerida: '{hoja_req}')", "info")
 
         # Limpiar datos anteriores
         self.progress_bar.set(0.0)
         self.num_exitos = 0
         self.num_errores = 0
-        self.lbl_metric_filas.configure(text="📊 Progreso: 0 / 0")
-        self.lbl_metric_exitos.configure(text="✅ Éxitos: 0")
-        self.lbl_metric_errores.configure(text="❌ Errores: 0")
+        if hasattr(self, 'lbl_metric_filas'):
+            self.lbl_metric_filas.configure(text="Progreso general: 0 / 0 registros")
+        if hasattr(self, 'lbl_porcentaje'):
+            self.lbl_porcentaje.configure(text="0%")
+        if hasattr(self, 'lbl_metric_procesados_val'):
+            self.lbl_metric_procesados_val.configure(text="0")
+        if hasattr(self, 'lbl_metric_exitos_val'):
+            self.lbl_metric_exitos_val.configure(text="0")
+        if hasattr(self, 'lbl_metric_errores_val'):
+            self.lbl_metric_errores_val.configure(text="0")
+        self.actualizar_estado_wizard()
 
     def set_estado_badge(self, texto, color_bg, color_txt="#FFFFFF"):
-        self.badge_estado.configure(text=f"● {texto}", fg_color=color_bg, text_color=color_txt)
+        if hasattr(self, 'badge_modulo_activo'):
+            self.badge_modulo_activo.configure(text=f"● {texto}", fg_color=color_bg, text_color=color_txt)
+        if hasattr(self, 'badge_estado'):
+            self.badge_estado.configure(text=f"● {texto}", fg_color=color_bg, text_color=color_txt)
 
     def log(self, mensaje, tipo="normal"):
         timestamp = time.strftime("[%H:%M:%S] ")
@@ -2955,13 +3923,17 @@ Encabezados requeridos en la Fila 1:
             self.entry_path.delete(0, "end")
             self.entry_path.insert(0, ruta)
             self.log(f"📁 Archivo seleccionado: {os.path.basename(ruta)}", "info")
+            self.actualizar_estado_wizard()
 
     def actualizar_progreso(self, actual, total):
         porcentaje = actual / total if total > 0 else 0
         def _update():
             try:
                 self.progress_bar.set(porcentaje)
-                self.lbl_metric_filas.configure(text=f"📊 Progreso: {actual} / {total}")
+                self.lbl_porcentaje.configure(text=f"{int(porcentaje * 100)}%")
+                self.lbl_metric_filas.configure(text=f"Progreso general: {actual} / {total} registros")
+                self.lbl_metric_procesados_val.configure(text=str(actual))
+                self.actualizar_estado_wizard()
             except Exception:
                 pass
         self.after(0, _update)
@@ -2970,7 +3942,9 @@ Encabezados requeridos en la Fila 1:
         self.num_exitos += 1
         def _update():
             try:
-                self.lbl_metric_exitos.configure(text=f"✅ Éxitos: {self.num_exitos}")
+                self.lbl_metric_exitos_val.configure(text=str(self.num_exitos))
+                self.lbl_metric_procesados_val.configure(text=str(self.num_exitos + self.num_errores))
+                self.actualizar_estado_wizard()
             except Exception:
                 pass
         self.after(0, _update)
@@ -2979,7 +3953,9 @@ Encabezados requeridos en la Fila 1:
         self.num_errores += 1
         def _update():
             try:
-                self.lbl_metric_errores.configure(text=f"❌ Errores: {self.num_errores}")
+                self.lbl_metric_errores_val.configure(text=str(self.num_errores))
+                self.lbl_metric_procesados_val.configure(text=str(self.num_exitos + self.num_errores))
+                self.actualizar_estado_wizard()
             except Exception:
                 pass
         self.after(0, _update)
@@ -3013,38 +3989,42 @@ Encabezados requeridos en la Fila 1:
             self.debe_detener = False
             self.num_exitos = 0
             self.num_errores = 0
-            self.lbl_metric_exitos.configure(text="✅ Éxitos: 0")
-            self.lbl_metric_errores.configure(text="❌ Errores: 0")
+            self.lbl_metric_exitos_val.configure(text="0")
+            self.lbl_metric_errores_val.configure(text="0")
+            self.lbl_metric_procesados_val.configure(text="0")
+            self.lbl_porcentaje.configure(text="0%")
 
             self.btn_browse.configure(state="disabled")
             self.opt_proceso.configure(state="disabled")
-            self.btn_comenzar.configure(text="🚀 Ejecutando...", fg_color="#059669", state="disabled")
-            self.btn_pausar.configure(state="normal", text="⏸️ Pausar", fg_color="#F59E0B")
+            self.btn_comenzar.configure(text="🚀 Ejecutando...", fg_color="#0DBE8A", state="disabled")
+            self.btn_pausar.configure(state="normal", text="⏸️ Pausar", fg_color="#F5C495")
             self.btn_detener.configure(state="normal")
-            self.set_estado_badge("EJECUTANDO", "#059669")
+            self.set_estado_badge("Ejecutando...", "#059669")
+            self.actualizar_estado_wizard()
 
             threading.Thread(target=ejecutar, args=(self.ruta_excel, nombre_proceso, self), daemon=True).start()
 
         elif self.debe_pausar:
             self.debe_pausar = False
-            self.btn_comenzar.configure(text="🚀 Ejecutando...", fg_color="#059669", state="disabled")
-            self.btn_pausar.configure(text="⏸️ Pausar", fg_color="#F59E0B")
-            self.set_estado_badge("EJECUTANDO", "#059669")
+            self.btn_comenzar.configure(text="🚀 Ejecutando...", fg_color="#0DBE8A", state="disabled")
+            self.btn_pausar.configure(text="⏸️ Pausar", fg_color="#F5C495")
+            self.set_estado_badge("Ejecutando...", "#059669")
             self.log("▶️ Proceso reanudado por el usuario.", "info")
+            self.actualizar_estado_wizard()
 
     def action_pausar(self):
         if self.en_ejecucion and not self.debe_pausar:
             self.debe_pausar = True
-            self.btn_pausar.configure(text="▶️ Reanudar", fg_color="#10B981")
-            self.btn_comenzar.configure(text="▶️ Reanudar", fg_color="#10B981", state="normal")
-            self.set_estado_badge("PAUSADO", "#D97706")
+            self.btn_pausar.configure(text="▶️ Reanudar", fg_color="#0DBE8A")
+            self.btn_comenzar.configure(text="▶️ Reanudar", fg_color="#0DBE8A", state="normal")
+            self.set_estado_badge("Pausado", "#D97706")
             self.log("⏸️ Proceso pausado. Haz clic en 'Reanudar' para continuar.", "warning")
 
     def action_detener(self):
         if self.en_ejecucion:
             self.debe_detener = True
             self.debe_pausar = False
-            self.set_estado_badge("DETENIENDO...", "#DC2626")
+            self.set_estado_badge("Deteniendo...", "#DC2626")
             self.log("🛑 Cancelando proceso... Espere a finalizar la fila actual.", "warning")
 
     def finalizar_proceso(self, exito=True):
@@ -3054,16 +4034,18 @@ Encabezados requeridos en la Fila 1:
 
         self.btn_browse.configure(state="normal")
         self.opt_proceso.configure(state="normal")
-        self.btn_comenzar.configure(text="🚀 Comenzar", fg_color="#10B981", state="normal")
-        self.btn_pausar.configure(text="⏸️ Pausar", fg_color="#F59E0B", state="disabled")
+        self.btn_comenzar.configure(text="▶ Iniciar automatización", fg_color="#0DBE8A", state="normal")
+        self.btn_pausar.configure(text="⏸ Pausar", fg_color="#F5C495", state="disabled")
         self.btn_detener.configure(state="disabled")
 
-        if self.badge_estado.cget("text").endswith("DETENIENDO..."):
-            self.set_estado_badge("DETENIDO", "#DC2626")
+        texto_badge_actual = self.badge_estado.cget("text").lower() if hasattr(self, 'badge_estado') else ""
+        if "deteni" in texto_badge_actual or "detenido" in texto_badge_actual:
+            self.set_estado_badge("Detenido", "#DC2626")
         elif exito:
-            self.set_estado_badge("COMPLETADO", "#10B981")
+            self.set_estado_badge("Completado", "#0DBE8A")
         else:
-            self.set_estado_badge("FINALIZADO CON ERRORES", "#EF4444")
+            self.set_estado_badge("Finalizado con errores", "#EF4444")
+        self.actualizar_estado_wizard()
 
 
 if __name__ == "__main__":

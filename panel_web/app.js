@@ -232,6 +232,18 @@ function obtenerListaLicenciasProcesada() {
   for (const [clave, obj] of Object.entries(licenciasData)) {
     if (!obj || typeof obj !== "object") continue;
 
+    // 🔒 Ocultar estrictamente la clave privada del administrador / master del cliente
+    const claveUpper = String(clave).toUpperCase().trim();
+    if (
+      claveUpper === "ADMIN-MASTER-2026-9X7P" ||
+      claveUpper.includes("ADMIN-MASTER") ||
+      claveUpper.startsWith("ADMIN-") ||
+      claveUpper.startsWith("MASTER-") ||
+      (obj.empresa && String(obj.empresa).toUpperCase().includes("MASTER"))
+    ) {
+      continue;
+    }
+
     const equipos = obj.equipos || {};
     // Filtrar equipos activos
     const equiposActivos = Object.entries(equipos).filter(

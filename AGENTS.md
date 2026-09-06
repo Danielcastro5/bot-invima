@@ -31,6 +31,11 @@ El software **Automatizador INVIMA** es una aplicación de escritorio con interf
   - **PROHIBIDO** mencionar orígenes de código como "GitHub" dentro de la interfaz de la aplicación (usar "Descargando actualización...", "¡Nueva versión disponible!").
   - **FORMA CORRECTA:** Redactar de forma simple, profesional y orientada al usuario. Ejemplo: *"Mejora en la apertura automática de ventanas", "Soporte para agregar múltiples ingredientes en un mismo grupo", "Detención segura para no perder datos"*.
 
+### ⛔ REGLA 4: DESARROLLO LOCAL PRIMERO Y PROHIBIDO HACER PUSH SIN AUTORIZACIÓN
+- Todos los cambios, mejoras o correcciones se realizan, compilan y prueban **estrictamente en local primero**.
+- **PROHIBIDO hacer `git push` a GitHub (sea `origin` o `public`) sin la orden y confirmación explícita del usuario.**
+- Cada vez que se realice un cambio o ajuste en el código fuente, se debe **recompilar y actualizar de inmediato el archivo ejecutable local (`Automatizador INVIMA.exe`)** para que el usuario pueda probarlo directamente en su entorno.
+
 ---
 
 ## 3. ARQUITECTURA DE CONEXIÓN AL NAVEGADOR
