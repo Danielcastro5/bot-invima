@@ -47,7 +47,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 PUERTO_CHROME = 9222   # Puerto de depuración de Chrome
 
-VERSION_ACTUAL = "v1.1.8"
+VERSION_ACTUAL = "v1.1.9"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/Danielcastro5/bot-invima/main/version.json"
 FIREBASE_DB_URL = "https://bot-invima-licencias-default-rtdb.firebaseio.com"
 SECRET_SALT_LICENCIA = "BOT_INVIMA_SECURE_AUTH_SALT_2026_V1"
@@ -468,18 +468,42 @@ def ejecutar_actualizacion_automatica(exe_url, config_url, app):
     """
     Descarga la nueva versión y reinicia la aplicación automáticamente.
     """
+    ruta_exe_nuevo = None
     try:
-        app.log("⬇️ Descargando actualización...", "info")
+        app.log("⬇️ Iniciando descarga de actualización...", "info")
         base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
         ruta_exe_nuevo = os.path.join(base_dir, "Automatizador_INVIMA_nueva.exe")
         ruta_exe_actual = os.path.join(base_dir, "Automatizador INVIMA.exe")
         ruta_config = os.path.join(base_dir, "config.py")
 
-        # 1. Descargar nuevo ejecutable
+        # Limpiar cualquier residuo previo si existiera
+        if os.path.exists(ruta_exe_nuevo):
+            try:
+                os.remove(ruta_exe_nuevo)
+            except Exception:
+                pass
+
+        # 1. Descargar nuevo ejecutable por bloques con reporte de avance
         if exe_url:
             req_exe = urllib.request.Request(exe_url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req_exe, timeout=60) as resp, open(ruta_exe_nuevo, "wb") as out_file:
-                out_file.write(resp.read())
+            with urllib.request.urlopen(req_exe, timeout=600) as resp:
+                total_bytes = int(resp.headers.get("Content-Length", 0))
+                descargados = 0
+                ultimo_porcentaje_notificado = -1
+
+                with open(ruta_exe_nuevo, "wb") as out_file:
+                    while True:
+                        chunk = resp.read(256 * 1024)
+                        if not chunk:
+                            break
+                        out_file.write(chunk)
+                        descargados += len(chunk)
+
+                        if total_bytes > 0:
+                            porcentaje = int((descargados / total_bytes) * 100)
+                            if porcentaje != ultimo_porcentaje_notificado and porcentaje % 15 == 0:
+                                ultimo_porcentaje_notificado = porcentaje
+                                app.log(f"⬇️ Descargando actualización... ({porcentaje}%)", "info")
 
         if os.path.exists(ruta_exe_nuevo) and os.path.getsize(ruta_exe_nuevo) < 10 * 1024 * 1024:
             if os.path.exists(ruta_exe_nuevo):
@@ -490,7 +514,7 @@ def ejecutar_actualizacion_automatica(exe_url, config_url, app):
         if config_url:
             try:
                 req_cfg = urllib.request.Request(config_url, headers={"User-Agent": "Mozilla/5.0"})
-                with urllib.request.urlopen(req_cfg, timeout=15) as resp, open(ruta_config, "wb") as out_cfg:
+                with urllib.request.urlopen(req_cfg, timeout=30) as resp, open(ruta_config, "wb") as out_cfg:
                     out_cfg.write(resp.read())
             except Exception:
                 pass
@@ -510,7 +534,7 @@ del "%~f0"
         with open(ruta_bat, "w", encoding="utf-8") as f:
             f.write(script_bat)
 
-        app.log("✨ Descarga completada. Reiniciando bot...", "success")
+        app.log("✨ Descarga completada al 100%. Reiniciando bot...", "success")
         time.sleep(1)
 
         # 4. Iniciar script y cerrar aplicación actual
@@ -518,6 +542,11 @@ del "%~f0"
         os._exit(0)
 
     except Exception as e:
+        if ruta_exe_nuevo and os.path.exists(ruta_exe_nuevo):
+            try:
+                os.remove(ruta_exe_nuevo)
+            except Exception:
+                pass
         app.log(f"❌ Error al aplicar actualización automática: {e}", "error")
         messagebox.showerror("Error de Actualización", f"No se pudo descargar la actualización:\n{e}")
 
@@ -1152,9 +1181,9 @@ def llenar_select(page, campo, valor, timeout_ms, app):
             continue
         try:
             if target.count() > 0:
-                target.scroll_into_view_if_needed(timeout=1000)
-                target.click(force=True, timeout=2000)
-                time.sleep(0.5)
+                target.scroll_into_view_if_needed(timeout=400)
+                target.click(force=True, timeout=1000)
+                time.sleep(0.25)
                 if page.locator(dropdown_sel).count() > 0:
                     menu_abierto = True
                     break
@@ -1163,12 +1192,12 @@ def llenar_select(page, campo, valor, timeout_ms, app):
 
     if not menu_abierto:
         try:
-            modal_top.locator(f".ant-form-item:has-text('{col_nombre}')").last.click(force=True)
-            time.sleep(0.6)
+            modal_top.locator(f".ant-form-item:has-text('{col_nombre}')").last.click(force=True, timeout=1000)
+            time.sleep(0.25)
         except Exception:
             pass
 
-    page.wait_for_selector(dropdown_sel, timeout=max(6000, timeout_ms))
+    page.wait_for_selector(dropdown_sel, timeout=min(4000, timeout_ms))
     
     dropdown_activo = page.locator(dropdown_sel).last
     opciones = dropdown_activo.locator(".ant-select-item-option, div[role='option'], .ant-select-item-option-content")
@@ -1189,7 +1218,7 @@ def llenar_select(page, campo, valor, timeout_ms, app):
         if txt_norm == valor_norm:
             app.log(f"      🎯 Seleccionada opción '{txt_opcion.strip()}' (para '{valor}')", "detail")
             hacer_clic_opcion(opciones.nth(k))
-            time.sleep(0.6)
+            time.sleep(0.2)
             return
 
     for k in range(total_opciones):
@@ -1198,17 +1227,72 @@ def llenar_select(page, campo, valor, timeout_ms, app):
         if txt_norm.startswith(valor_norm) or valor_norm in txt_norm:
             app.log(f"      🎯 Seleccionada opción semejante '{txt_opcion.strip()}' (para '{valor}')", "detail")
             hacer_clic_opcion(opciones.nth(k))
-            time.sleep(0.6)
+            time.sleep(0.2)
             return
+
+    # 3. Coincidencia por palabras clave (tolerancia plural/singular, ej: 'GRUPO COLORES' vs 'GRUPOS COLORES')
+    palabras_val = [p for p in valor_norm.split() if len(p) > 2]
+    if palabras_val:
+        for k in range(total_opciones):
+            txt_opcion = opciones.nth(k).inner_text().strip()
+            txt_norm = normalizar_texto(txt_opcion)
+            palabras_opt = txt_norm.split()
+            if all(any(pv in po or po in pv for po in palabras_opt) for pv in palabras_val):
+                app.log(f"      🎯 Seleccionada opción coincidente '{txt_opcion}' (para '{valor}')", "detail")
+                hacer_clic_opcion(opciones.nth(k))
+                time.sleep(0.2)
+                return
 
     try:
         opc_has = dropdown_activo.locator(f":has-text('{valor}')").last
-        if opc_has.count() > 0:
+        if opc_has.count() > 0 and opc_has.is_visible():
             hacer_clic_opcion(opc_has)
-            time.sleep(0.6)
+            time.sleep(0.2)
             return
     except Exception:
         pass
+
+    # Soporte para listas virtuales con muchas opciones (ej: listas de grupos > 10 elementos)
+    holder = dropdown_activo.locator(".rc-virtual-list-holder")
+    if holder.count() > 0:
+        try:
+            scroll_h = holder.evaluate("el => el.scrollHeight")
+            client_h = holder.evaluate("el => el.clientHeight") or 256
+            step = 220
+            app.log(f"      📜 Buscando '{valor}' en lista desplegable amplia...", "detail")
+            for pos in range(0, scroll_h + step, step):
+                holder.evaluate(f"""el => {{
+                    el.scrollTop = {pos};
+                    el.dispatchEvent(new Event('scroll'));
+                }}""")
+                time.sleep(0.03)
+                items_js = dropdown_activo.evaluate("""
+                    el => Array.from(el.querySelectorAll('.ant-select-item-option')).map((node, i) => ({
+                        i: i,
+                        text: (node.innerText || '').trim()
+                    }))
+                """)
+                for item in items_js:
+                    txt_opt = item["text"]
+                    txt_opt_norm = normalizar_texto(txt_opt)
+                    opt_elem = dropdown_activo.locator(".ant-select-item-option").nth(item["i"])
+                    if txt_opt_norm == valor_norm:
+                        app.log(f"      🎯 Seleccionada opción '{txt_opt}' (para '{valor}')", "detail")
+                        hacer_clic_opcion(opt_elem)
+                        time.sleep(0.2)
+                        return
+                    if (txt_opt_norm.startswith(valor_norm) or valor_norm in txt_opt_norm) and not (len(txt_opt) > 3 and txt_opt[-1].isdigit()):
+                        app.log(f"      🎯 Seleccionada opción semejante '{txt_opt}' (para '{valor}')", "detail")
+                        hacer_clic_opcion(opt_elem)
+                        time.sleep(0.2)
+                        return
+                    if palabras_val and all(any(pv in po or po in pv for po in txt_opt_norm.split()) for pv in palabras_val):
+                        app.log(f"      🎯 Seleccionada opción coincidente '{txt_opt}' (para '{valor}') tras desplazamiento", "detail")
+                        hacer_clic_opcion(opt_elem)
+                        time.sleep(0.2)
+                        return
+        except Exception as e_scroll:
+            app.log(f"      ⚠️ Detalle en búsqueda de lista: {e_scroll}", "detail")
 
     raise ValueError(f"La opción '{valor}' no se encuentra en la lista del menú activo")
 
@@ -1226,7 +1310,7 @@ def llenar_switch(page, campo, valor, app):
             target = page.locator("#isNanomaterial, button#isNanomaterial, .ant-modal-body button.ant-switch, button.ant-switch").last
 
     if target.count() == 0:
-        app.log(f"   ⚠️ No se encontró el interruptor para '{campo['columna']}'", "warning")
+        app.log(f"   ℹ️ Casilla/interruptor '{campo['columna']}' no presente en este formulario, omitiendo...", "detail")
         return
 
     deseado_si = str(valor).strip().lower() in ["sí", "si", "s", "true", "1", "yes"]
@@ -1242,14 +1326,14 @@ def llenar_switch(page, campo, valor, app):
                 target.click(force=True)
             except Exception:
                 target.evaluate("el => el.click()")
-            time.sleep(0.4)
+            time.sleep(0.2)
         elif not deseado_si and esta_activo:
             app.log(f"   🔘 Desactivando interruptor '{campo['columna']}' (No)", "detail")
             try:
                 target.click(force=True)
             except Exception:
                 target.evaluate("el => el.click()")
-            time.sleep(0.3)
+            time.sleep(0.2)
     except Exception as e:
         app.log(f"   ⚠️ No se pudo cambiar el interruptor '{campo['columna']}': {e}", "warning")
 
@@ -1396,8 +1480,16 @@ def llenar_campo_composicion(page, campo, fila, app, cfg):
     es_listado_ref = "listado" in col_nombre.lower() or "referencia" in col_nombre.lower()
     timeout_ms = getattr(cfg, "TIMEOUT_SEGUNDOS", 15) * 1000
 
+    tipo_fila = normalizar_texto(fila.get("Tipo") or fila.get("tipo") or "")
+    col_norm = normalizar_texto(col_nombre)
+
+    # Si la fila es de Tipo Mezcla, ignorar campos que no aplican a mezclas en el portal
+    if tipo_fila == "mezcla":
+        if "nanomaterial" in col_norm or "particula" in col_norm or "listado" in col_norm or "referencia" in col_norm or "funcion" in col_norm:
+            return
+
     if not valor or str(valor).strip() == "":
-        if es_listado_ref:
+        if es_listado_ref and tipo_fila != "mezcla":
             _seleccionar_primera_opcion_listado_referencia(page, campo, app, timeout_ms)
         return
 
@@ -1410,10 +1502,7 @@ def llenar_campo_composicion(page, campo, fila, app, cfg):
             target = modal_top.locator(f".ant-form-item:has-text('{col_nombre}') input").last
         if target.count() == 0:
             target = modal_top.locator(f".ant-form-item:has-text('{col_nombre}') .ant-select-selector").last
-        if target.count() == 0:
-            target = page.locator(campo["selector"]).last
     else:
-        modal_top = page
         target = page.locator(campo["selector"]).last
 
     if target.count() == 0:
@@ -1425,9 +1514,9 @@ def llenar_campo_composicion(page, campo, fila, app, cfg):
 
     # Esperar si el elemento está deshabilitado
     try:
-        if target.is_disabled():
+        if target.is_disabled(timeout=200):
             app.log(f"   ⏳ Esperando a que el portal desbloquee '{campo['columna']}'...", "detail")
-            page.wait_for_function("el => !el.disabled", arg=target.element_handle(), timeout=4000)
+            page.wait_for_function("el => !el.disabled", arg=target.element_handle(), timeout=1000)
     except Exception:
         pass
 
@@ -1444,10 +1533,19 @@ def llenar_campo_composicion(page, campo, fila, app, cfg):
                 if input_child.count() > 0:
                     target = input_child
             target.fill(str(valor))
+            time.sleep(0.1)
         elif campo["tipo"] == "select":
             llenar_select(page, campo, valor, timeout_ms, app)
         elif campo["tipo"] == "autocompletar":
-            llenar_autocompletar_composicion(page, campo, valor, timeout_ms, app)
+            es_campo_ing_mezcla = "mezcla" in col_norm or "ingrediente" in col_norm
+            if tipo_fila == "mezcla" and es_campo_ing_mezcla:
+                app.log(f"   ℹ️ Modo Mezcla: seleccionando '{valor}' directamente de la lista desplegable sin escribir...", "detail")
+                campo_mezcla = dict(campo)
+                campo_mezcla["tipo"] = "select"
+                campo_mezcla["selector"] = ".ant-select:has(#referenceMixtureId) .ant-select-selector, .ant-form-item:has(#referenceMixtureId) .ant-select-selector"
+                llenar_select(page, campo_mezcla, valor, timeout_ms, app)
+            else:
+                llenar_autocompletar_composicion(page, campo, valor, timeout_ms, app)
         elif campo["tipo"] == "multiselect":
             llenar_multiselect(page, campo, valor, timeout_ms, app)
         elif campo["tipo"] in ["switch", "toggle"]:
@@ -1481,12 +1579,12 @@ def guardar_reporte_errores(ruta_excel, nombre_proceso, lista_errores):
             f.write("==========================================================================" + "\n\n")
 
             for err in lista_errores:
-                f.write(f"📍 LÍNEA EN EXCEL #{err['linea_excel']}\n")
-                f.write(f"   • Registro N°: {err['numero_registro']}\n")
-                f.write(f"   • Columna Afectada: {err['columna']}\n")
-                f.write(f"   • Valor Buscado: {err['valor']}\n")
-                f.write(f"   • Razón del Error: {err['detalle']}\n")
-                f.write(f"   • Intentos Realizados: {err['intentos']}\n")
+                f.write(f"📍 LÍNEA EN EXCEL #{err.get('linea_excel', '-')}\n")
+                f.write(f"   • Registro N°: {err.get('numero_registro', '-')}\n")
+                f.write(f"   • Columna Afectada: {err.get('columna', err.get('columna_afectada', '-'))}\n")
+                f.write(f"   • Valor Buscado: {err.get('valor', err.get('valor_excel', '-'))}\n")
+                f.write(f"   • Razón del Error: {err.get('detalle', err.get('motivo', '-'))}\n")
+                f.write(f"   • Intentos Realizados: {err.get('intentos', 3)}\n")
                 f.write("-" * 65 + "\n\n")
 
         return ruta_txt
@@ -1825,6 +1923,15 @@ def ejecutar_proceso_composicion_grupo(page, proceso_cfg, filas, app, cfg, timeo
                     })
 
         if not modal_grupo_abierto:
+            try:
+                page.keyboard.press("Escape")
+                time.sleep(0.3)
+                btn_canc = page.locator(".ant-modal:not([style*='display: none']) button:has-text('Cancelar'), .ant-modal:not([style*='display: none']) .ant-modal-close").first
+                if btn_canc.count() > 0:
+                    btn_canc.click(force=True)
+                    time.sleep(0.5)
+            except Exception:
+                pass
             continue
 
         # 2. Añadir cada ingrediente del grupo con sistema de 3 reintentos individuales
@@ -1853,14 +1960,15 @@ def ejecutar_proceso_composicion_grupo(page, proceso_cfg, filas, app, cfg, timeo
 
                 try:
                     app.log(f"      🖱️ Clic en 'Añadir ingrediente'...", "detail")
-                    btn_anadir = page.locator(selector_anadir_ing).first
+                    btn_anadir = page.locator("button:has-text('Añadir Ingrediente'), button:has-text('Añadir ingrediente'), button:has-text('Agregar Ingrediente'), button:has-text('Agregar ingrediente')").first
+                    if btn_anadir.count() == 0:
+                        btn_anadir = page.locator(selector_anadir_ing).first
                     try:
-                        btn_anadir.scroll_into_view_if_needed(timeout=1000)
-                        btn_anadir.click(force=True, timeout=timeout_ms)
+                        btn_anadir.evaluate("el => el.click()")
                     except Exception:
-                        page.locator("button:has-text('Añadir ingrediente'), button:has-text('Agregar ingrediente'), button:has-text('Adicionar ingrediente'), button:has-text('Añadir'), button:has-text('Agregar')").first.click(force=True)
+                        btn_anadir.click(force=True, timeout=timeout_ms)
 
-                    time.sleep(0.6)
+                    time.sleep(0.4)
 
                     # Llenar campos de ingrediente
                     for campo in campos_ingrediente:
@@ -1868,9 +1976,12 @@ def ejecutar_proceso_composicion_grupo(page, proceso_cfg, filas, app, cfg, timeo
 
                     # Guardar ingrediente (en el sub-modal de ingrediente)
                     app.log(f"      💾 Guardando ingrediente...", "detail")
-                    btn_guardar_ing = page.locator(selector_guardar_ing).last
-                    btn_guardar_ing.click(force=True, timeout=timeout_ms)
-                    time.sleep(0.8)
+                    btn_guardar_ing = page.locator(".ant-modal:not([style*='display: none']) .ant-modal-footer button.ant-btn-primary, .ant-modal:not([style*='display: none']) button:has-text('Guardar')").last
+                    try:
+                        btn_guardar_ing.evaluate("el => el.click()")
+                    except Exception:
+                        btn_guardar_ing.click(force=True, timeout=timeout_ms)
+                    time.sleep(0.5)
 
                     exito_ing = True
                     exitosos += 1
@@ -1901,9 +2012,12 @@ def ejecutar_proceso_composicion_grupo(page, proceso_cfg, filas, app, cfg, timeo
         # 3. Guardar SIEMPRE el grupo completo para asegurar los datos en el portal
         try:
             app.log(f"   💾 Guardando Grupo '{nombre_grupo}'...", "detail")
-            btn_guardar_grp = page.locator(selector_guardar_grupo).first
-            btn_guardar_grp.click(force=True, timeout=timeout_ms)
-            time.sleep(1.0)
+            btn_guardar_grp = page.locator(".ant-modal:not([style*='display: none']) .ant-modal-footer button.ant-btn-primary, .ant-modal:not([style*='display: none']) button:has-text('Guardar')").first
+            try:
+                btn_guardar_grp.evaluate("el => el.click()")
+            except Exception:
+                btn_guardar_grp.click(force=True, timeout=timeout_ms)
+            time.sleep(0.6)
             app.log(f"   ✨ Grupo '{nombre_grupo}' guardado exitosamente.", "success")
         except Exception as e_grp_save:
             app.log(f"   ⚠️ Error al guardar Grupo '{nombre_grupo}': {e_grp_save}", "warning")
@@ -2208,8 +2322,14 @@ class App(ctk.CTk):
         super().__init__()
 
         self.title("MC PROCESOS INTEGRALES - Automatizador")
-        self.geometry("1240x860")
-        self.minsize(1140, 780)
+
+        # Geometría adaptable con soporte completo para computadores portátiles
+        pantalla_w = self.winfo_screenwidth()
+        pantalla_h = self.winfo_screenheight()
+        alto_inicial = min(840, max(580, pantalla_h - 90))
+        ancho_inicial = min(1240, max(1050, pantalla_w - 60))
+        self.geometry(f"{ancho_inicial}x{alto_inicial}")
+        self.minsize(1050, 500)
         self.configure(fg_color="#CEDDF0")
 
         # Cargar icono de ventana y de barra de tareas con persistencia total
@@ -2242,6 +2362,8 @@ class App(ctk.CTk):
         self.num_exitos = 0
         self.num_errores = 0
         self.licencia_info = None
+        self._modal_ayuda = None
+        self._modal_manual = None
 
         self._construir_interfaz()
         self.protocol("WM_DELETE_WINDOW", self._on_cerrar_aplicacion)
@@ -2438,7 +2560,13 @@ class App(ctk.CTk):
         self.after(500, _construir_dialogo)
 
     def mostrar_modal_manual(self):
+        if getattr(self, "_modal_manual", None) and self._modal_manual.winfo_exists():
+            self._modal_manual.lift()
+            self._modal_manual.focus_force()
+            return
+
         top = ctk.CTkToplevel(self)
+        self._modal_manual = top
         top.title("📖 Manual de Usuario y Guía de Operación - MC PROCESOS INTEGRALES")
         top.geometry("740x620")
         top.resizable(True, True)
@@ -2449,6 +2577,12 @@ class App(ctk.CTk):
                 top.iconphoto(True, self._icono_ref)
             except Exception:
                 pass
+
+        def _cerrar_manual():
+            self._modal_manual = None
+            top.destroy()
+
+        top.protocol("WM_DELETE_WINDOW", _cerrar_manual)
 
         lbl_title = ctk.CTkLabel(
             top,
@@ -2768,9 +2902,15 @@ Paso 7: Haz clic en "▶ Iniciar automatización".
                 self.log(f"❌ Error exportando reporte: {e}", "error")
 
     def mostrar_modal_ayuda(self):
+        if getattr(self, "_modal_ayuda", None) and self._modal_ayuda.winfo_exists():
+            self._modal_ayuda.lift()
+            self._modal_ayuda.focus_force()
+            return
+
         top = ctk.CTkToplevel(self)
+        self._modal_ayuda = top
         top.title("💬 Soporte y Asistencia - MC PROCESOS INTEGRALES")
-        top.geometry("480x330")
+        top.geometry("480x290")
         top.resizable(False, False)
         top.attributes("-topmost", True)
         top.configure(fg_color="#F8FAFC")
@@ -2779,6 +2919,12 @@ Paso 7: Haz clic en "▶ Iniciar automatización".
                 top.iconphoto(True, self._icono_ref)
             except Exception:
                 pass
+
+        def _cerrar_ayuda():
+            self._modal_ayuda = None
+            top.destroy()
+
+        top.protocol("WM_DELETE_WINDOW", _cerrar_ayuda)
 
         lbl_t = ctk.CTkLabel(
             top,
@@ -2801,7 +2947,7 @@ Paso 7: Haz clic en "▶ Iniciar automatización".
 
         lbl_contacto = ctk.CTkLabel(
             box,
-            text="📧 Correo: contacto@mcprocesosintegrales.com\n📞 Soporte Regulatorio y Técnico Especializado\n🌐 Portal: www.mcprocesosintegrales.com",
+            text="📧 Correo: mcserviciosintegrales.co@gmail.com\n📞 Soporte Regulatorio: 3011318258 - 3007758234",
             font=ctk.CTkFont(family="Segoe UI", size=12),
             text_color="#334155",
             justify="left",
@@ -2819,7 +2965,7 @@ Paso 7: Haz clic en "▶ Iniciar automatización".
             text_color="#FFFFFF",
             width=120,
             corner_radius=8,
-            command=top.destroy
+            command=_cerrar_ayuda
         )
         btn_cerrar.pack(pady=(16, 10))
 
@@ -3022,7 +3168,8 @@ Paso 7: Haz clic en "▶ Iniciar automatización".
                 b2 = self.app.bind("<Configure>", self._on_app_move, add="+")
                 b3 = self.app.bind("<Unmap>", lambda e: self.cerrar(), add="+")
                 b4 = self.app.bind("<Escape>", lambda e: self.cerrar(), add="+")
-                self._bind_ids = [("<Button-1>", b1), ("<Configure>", b2), ("<Unmap>", b3), ("<Escape>", b4)]
+                b5 = self.app.bind("<MouseWheel>", lambda e: self.cerrar(), add="+")
+                self._bind_ids = [("<Button-1>", b1), ("<Configure>", b2), ("<Unmap>", b3), ("<Escape>", b4), ("<MouseWheel>", b5)]
 
             def _unbind_app_events(self):
                 for seq, bid in self._bind_ids:
@@ -3251,7 +3398,14 @@ Paso 7: Haz clic en "▶ Iniciar automatización".
         frame_main.grid_columnconfigure(1, weight=1)
         frame_main.grid_rowconfigure(0, weight=1)
 
-        col_left = ctk.CTkFrame(frame_main, fg_color="transparent")
+        col_left = ctk.CTkScrollableFrame(
+            frame_main,
+            fg_color="transparent",
+            corner_radius=0,
+            scrollbar_button_color="#C4B5FD",
+            scrollbar_button_hover_color="#7D51E9",
+            scrollbar_fg_color="#F1F5F9"
+        )
         col_left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
 
         col_right = ctk.CTkFrame(frame_main, fg_color="transparent")
@@ -3640,7 +3794,7 @@ Paso 7: Haz clic en "▶ Iniciar automatización".
             corner_radius=12,
             border_width=0
         )
-        card_log.pack(fill="both", expand=True, pady=0)
+        card_log.pack(fill="x", pady=(0, 6))
         card_log.grid_columnconfigure(0, weight=1)
         card_log.grid_rowconfigure(1, weight=1)
 
@@ -3693,7 +3847,8 @@ Paso 7: Haz clic en "▶ Iniciar automatización".
             fg_color="#0F172A",
             text_color="#38BDF8",
             corner_radius=6,
-            border_width=0
+            border_width=0,
+            height=260
         )
         self.txt_log.grid(row=1, column=0, padx=6, pady=(0, 6), sticky="nsew")
 

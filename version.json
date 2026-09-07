@@ -1,6 +1,6 @@
 {
-  "version": "v1.1.8",
-  "exe_url": "https://github.com/Danielcastro5/bot-invima/releases/download/v1.1.8/Automatizador_INVIMA.exe",
+  "version": "v1.1.9",
+  "exe_url": "https://github.com/Danielcastro5/bot-invima/releases/download/v1.1.9/Automatizador_INVIMA.exe",
   "config_url": "",
-  "novedades": "• Nueva distribución visual independiente en dos columnas para mayor visibilidad y comodidad.\n• Panel integrado para descargar la Plantilla Oficial de Excel con las 6 hojas y columnas estandarizadas.\n• Mejoras visuales en las cápsulas de estado y progreso en tiempo real.\n• Ajuste dinámico en menús y ventanas de ayuda para una navegación más fluida y limpia."
+  "novedades": "• Gran optimización en la velocidad de ejecución y diligenciamiento de formularios.\n• Selección directa y asistida para ingredientes de tipo mezcla en composición por grupo.\n• Prevención de ventanas duplicadas en el manual de usuario y soporte para un uso más fluido.\n• Actualización de los canales oficiales de contacto y líneas de atención regulatoria."
 }
