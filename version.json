@@ -1,6 +1,6 @@
 {
-  "version": "v1.1.9",
-  "exe_url": "https://github.com/Danielcastro5/bot-invima/releases/download/v1.1.9/Automatizador_INVIMA.exe",
+  "version": "v1.1.9.1",
+  "exe_url": "https://github.com/Danielcastro5/bot-invima/releases/download/v1.1.9.1/Automatizador_INVIMA.exe",
   "config_url": "",
-  "novedades": "• Gran optimización en la velocidad de ejecución y diligenciamiento de formularios.\n• Selección directa y asistida para ingredientes de tipo mezcla en composición por grupo.\n• Prevención de ventanas duplicadas en el manual de usuario y soporte para un uso más fluido.\n• Actualización de los canales oficiales de contacto y líneas de atención regulatoria."
+  "novedades": "• Corrección y optimización en el registro de Características Organolépticas para la selección fluida del grupo cosmético.\n• Mayor compatibilidad en casillas de descripción para Color, Olor y Sabor.\n• Mayor confiabilidad en el guardado automático de formularios sin demoras.\n• Optimización del sistema de actualización automática para una instalación más limpia."
 }

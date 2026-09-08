@@ -268,32 +268,32 @@ PROCESOS = {
     "Características Técnicas (Características Organolépticas)": {
         "NOMBRE_HOJA": "Características Organolépticas",
         "BOTON_ABRIR_MODAL": r"button:has-text('Agregar Características Organolépticas'), button:has-text('Adicionar Características Organolépticas'), button:has-text('Agregar Caracteristicas Organolepticas'), button:has-text('Características Organolépticas'), button:has-text('Caracteristicas Organolepticas'), button:has-text('Características organolépticas'), button:has-text('Caracteristicas organolepticas'), button:has-text('Organolépticas'), button:has-text('Organolepticas'), #single-spa-application\:\@cx\/workspace-cosmetics > div > main > div.erHFPg5exWzGeIbPIRYe > div.xhUocBpKVBF6DfRqoST5 > div.vQ8bD_kd41eOJ1OyVQYW > div.ant-row.css-cdzvx5 > div > div > div > div > div > div:nth-child(1) > div.ant-row.ant-row-end.css-1pu91a6 > div > button, #single-spa-application\:\@cx\/workspace-cosmetics > div > main > div.erHFPg5exWzGeIbPIRYe > div.xhUocBpKVBF6DfRqoST5 > div.vQ8bD_kd41eOJ1OyVQYW > div.ant-row.css-cdzvx5 > div > div > div > div > div > div:nth-child(1) > div.ant-row.ant-row-end.css-1pu91a6 > div button",
-        "SELECTOR_MODAL": r".ant-modal-wrap, .ant-modal-content, .ant-modal",
-        "BOTON_ENVIAR": r".ant-modal-footer button.ant-btn-primary, body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-footer > button.ant-btn.css-1pu91a6.ant-btn-primary.ant-btn-color-primary.ant-btn-variant-solid, button:has-text('Guardar'), button:has-text('Aceptar')",
+        "SELECTOR_MODAL": r".ant-modal-content, .ant-modal, .ant-modal-wrap",
+        "BOTON_ENVIAR": r".ant-modal:not([style*='display: none']) .ant-modal-footer button.ant-btn-primary, .ant-modal:not([style*='display: none']) .ant-modal-footer button:has-text('Guardar'), .ant-modal:not([style*='display: none']) .ant-modal-footer button:has-text('Aceptar'), .ant-modal-footer button.ant-btn-primary, button:has-text('Guardar'), button:has-text('Aceptar')",
         "CAMPOS": [
             {
                 "columna": "Grupo Cosmético",
                 "alias": ["Grupo", "grupo", "Nombre del grupo", "Grupo cosmetico", "grupo cosmetico", "Grupo Cosmético", "grupo cosmético", "Nombre grupo", "nombre grupo"],
-                "selector": r".ant-modal-body form > div > div:nth-child(1) input, .ant-modal-body form > div > div:nth-child(1) .ant-select-selection-search input, .ant-modal-body .ant-form-item:has-text('Grupo') input, .ant-modal-body .ant-form-item:has-text('grupo') input, .ant-modal-body form > div > div:nth-child(1) .ant-select-selector, body > div:nth-child(6) div.ant-modal-body form > div > div:nth-child(1) input",
-                "tipo": "autocompletar",
+                "selector": r".ant-modal:not([style*='display: none']) .ant-form-item:has-text('Grupo') .ant-select-selector, .ant-modal:not([style*='display: none']) form > div > div:nth-child(1) .ant-select-selector, .ant-modal-body form > div > div:nth-child(1) .ant-select-selector, .ant-modal-body .ant-form-item:has-text('Grupo') .ant-select-selector, .ant-modal:not([style*='display: none']) .ant-select-selector, .ant-modal-body form > div > div:nth-child(1) input",
+                "tipo": "select",
                 "selector_sugerencia": r".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option, .ant-select-item-option",
             },
             {
                 "columna": "Color",
                 "alias": ["Color", "color"],
-                "selector": r".ant-modal-body form > div > div:nth-child(2) input, .ant-modal-body .ant-form-item:has-text('Color') input, .ant-modal-body .ant-form-item:has-text('color') input, body > div:nth-child(6) div.ant-modal-body form > div > div:nth-child(2) input, body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(2) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input",
+                "selector": r".ant-modal-body form > div > div:nth-child(2) input, .ant-modal-body form > div > div:nth-child(2) textarea, .ant-modal-body .ant-form-item:has-text('Color') input, .ant-modal-body .ant-form-item:has-text('Color') textarea, .ant-modal-body .ant-form-item:has-text('color') input, .ant-modal-body .ant-form-item:has-text('color') textarea, body > div:nth-child(6) div.ant-modal-body form > div > div:nth-child(2) input",
                 "tipo": "texto",
             },
             {
                 "columna": "Olor",
                 "alias": ["Olor", "olor"],
-                "selector": r".ant-modal-body form > div > div:nth-child(3) input, .ant-modal-body .ant-form-item:has-text('Olor') input, .ant-modal-body .ant-form-item:has-text('olor') input, body > div:nth-child(6) div.ant-modal-body form > div > div:nth-child(3) input, body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(3) > div > div input",
+                "selector": r".ant-modal-body form > div > div:nth-child(3) input, .ant-modal-body form > div > div:nth-child(3) textarea, .ant-modal-body .ant-form-item:has-text('Olor') input, .ant-modal-body .ant-form-item:has-text('Olor') textarea, .ant-modal-body .ant-form-item:has-text('olor') input, .ant-modal-body .ant-form-item:has-text('olor') textarea, body > div:nth-child(6) div.ant-modal-body form > div > div:nth-child(3) input",
                 "tipo": "texto",
             },
             {
                 "columna": "Sabor",
                 "alias": ["Sabor", "sabor"],
-                "selector": r".ant-modal-body form > div > div:nth-child(4) input, .ant-modal-body .ant-form-item:has-text('Sabor') input, .ant-modal-body .ant-form-item:has-text('sabor') input, body > div:nth-child(6) div.ant-modal-body form > div > div:nth-child(4) input, body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(4) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input",
+                "selector": r".ant-modal-body form > div > div:nth-child(4) input, .ant-modal-body form > div > div:nth-child(4) textarea, .ant-modal-body .ant-form-item:has-text('Sabor') input, .ant-modal-body .ant-form-item:has-text('Sabor') textarea, .ant-modal-body .ant-form-item:has-text('sabor') input, .ant-modal-body .ant-form-item:has-text('sabor') textarea, body > div:nth-child(6) div.ant-modal-body form > div > div:nth-child(4) input",
                 "tipo": "texto",
             }
         ]

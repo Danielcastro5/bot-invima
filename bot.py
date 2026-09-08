@@ -47,7 +47,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 PUERTO_CHROME = 9222   # Puerto de depuración de Chrome
 
-VERSION_ACTUAL = "v1.1.9"
+VERSION_ACTUAL = "v1.1.9.1"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/Danielcastro5/bot-invima/main/version.json"
 FIREBASE_DB_URL = "https://bot-invima-licencias-default-rtdb.firebaseio.com"
 SECRET_SALT_LICENCIA = "BOT_INVIMA_SECURE_AUTH_SALT_2026_V1"
@@ -117,8 +117,46 @@ def abrir_chrome_automatizado(app=None):
             app.log("❌ No se encontró Google Chrome en las rutas predeterminadas.", "error")
         return False
 
-    base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
-    user_data_dir = os.path.join(base_dir, "chrome_profile_bot")
+    # Guardar el perfil permanentemente en AppData\Local (evita llenar el Escritorio o OneDrive de archivos)
+    local_app_data = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    user_data_dir = os.path.join(local_app_data, "AutomatizadorINVIMA", "chrome_profile")
+    os.makedirs(user_data_dir, exist_ok=True)
+
+    # Migración transparente de perfil anterior (ej: si estaba en el Escritorio o en base_dir)
+    # para no perder certificados ni inicio de sesión activo en INVIMA
+    if not os.path.exists(os.path.join(user_data_dir, "Default")):
+        candidatos_previos = [
+            os.path.join(os.environ.get("USERPROFILE", ""), "OneDrive", "Escritorio", "chrome_profile_bot"),
+            os.path.join(os.environ.get("USERPROFILE", ""), "Desktop", "chrome_profile_bot"),
+            os.path.join(os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__)), "chrome_profile_bot"),
+            r"C:\bot-registro\chrome_profile_bot"
+        ]
+        for c_prev in candidatos_previos:
+            if os.path.exists(os.path.join(c_prev, "Default")):
+                try:
+                    for item in os.listdir(c_prev):
+                        if item in ["lockfile", "SingletonLock", "SingletonCookie", "SingletonSocket"]:
+                            continue
+                        s = os.path.join(c_prev, item)
+                        d = os.path.join(user_data_dir, item)
+                        if os.path.isdir(s) and not os.path.exists(d):
+                            shutil.copytree(s, d, ignore=shutil.ignore_patterns("*.tmp", "*lock*"))
+                        elif os.path.isfile(s) and not os.path.exists(d):
+                            shutil.copy2(s, d)
+                    break
+                except Exception:
+                    pass
+
+    # Intentar limpiar perfiles huérfanos del escritorio si ya no están en uso por Chrome
+    for r_esc in [
+        os.path.join(os.environ.get("USERPROFILE", ""), "OneDrive", "Escritorio", "chrome_profile_bot"),
+        os.path.join(os.environ.get("USERPROFILE", ""), "Desktop", "chrome_profile_bot")
+    ]:
+        if os.path.exists(r_esc) and not os.path.exists(os.path.join(r_esc, "lockfile")):
+            try:
+                shutil.rmtree(r_esc, ignore_errors=True)
+            except Exception:
+                pass
 
     cmd = [
         exe_chrome,
@@ -466,14 +504,22 @@ def buscar_actualizaciones_github(app):
 
 def ejecutar_actualizacion_automatica(exe_url, config_url, app):
     """
-    Descarga la nueva versión y reinicia la aplicación automáticamente.
+    Descarga la nueva versión y reinicia la aplicación automáticamente de forma robusta.
     """
     ruta_exe_nuevo = None
     try:
         app.log("⬇️ Iniciando descarga de actualización...", "info")
-        base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+        es_empaquetado = getattr(sys, 'frozen', False)
+        if es_empaquetado:
+            ruta_exe_actual = sys.executable
+            base_dir = os.path.dirname(sys.executable)
+            nombre_exe = os.path.basename(sys.executable)
+        else:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            ruta_exe_actual = os.path.join(base_dir, "Automatizador INVIMA.exe")
+            nombre_exe = "Automatizador INVIMA.exe"
+
         ruta_exe_nuevo = os.path.join(base_dir, "Automatizador_INVIMA_nueva.exe")
-        ruta_exe_actual = os.path.join(base_dir, "Automatizador INVIMA.exe")
         ruta_config = os.path.join(base_dir, "config.py")
 
         # Limpiar cualquier residuo previo si existiera
@@ -510,7 +556,7 @@ def ejecutar_actualizacion_automatica(exe_url, config_url, app):
                 os.remove(ruta_exe_nuevo)
             raise Exception("El archivo de actualización descargado está incompleto o dañado.")
 
-        # 2. Descargar nuevo config.py
+        # 2. Descargar nuevo config.py si aplica
         if config_url:
             try:
                 req_cfg = urllib.request.Request(config_url, headers={"User-Agent": "Mozilla/5.0"})
@@ -519,16 +565,52 @@ def ejecutar_actualizacion_automatica(exe_url, config_url, app):
             except Exception:
                 pass
 
-        # 3. Crear script de reemplazo en segundo plano
+        # 3. En entorno de desarrollo (ejecución desde script .py), no cerramos el editor ni ejecutamos script bat
+        if not es_empaquetado:
+            app.log("✨ Actualización descargada exitosamente en la carpeta local.", "success")
+            app.log("💡 Para probarla como ejecutable, compila el binario localmente.", "info")
+            messagebox.showinfo("Actualización Descargada", "La nueva versión se descargó correctamente en la carpeta del proyecto.")
+            return
+
+        # 4. Crear script de reemplazo en segundo plano para el cliente empaquetado (.exe)
+        pid_actual = os.getpid()
         ruta_bat = os.path.join(base_dir, "actualizar_bot.bat")
         script_bat = f"""@echo off
-timeout /t 3 /nobreak > nul
-taskkill /F /IM "Automatizador INVIMA.exe" 2>nul
+chcp 65001 > nul
+setlocal enabledelayedexpansion
+
+:: 1. Ir a la carpeta del ejecutable
+cd /d "{base_dir}"
+
+:: 2. Esperar cierre ordenado y asegurar liberacion de memoria
+timeout /t 2 /nobreak > nul
+taskkill /F /PID {pid_actual} >nul 2>&1
+taskkill /F /IM "{nombre_exe}" >nul 2>&1
+taskkill /F /IM "Automatizador INVIMA.exe" >nul 2>&1
+taskkill /F /IM "Automatizador_INVIMA.exe" >nul 2>&1
+
+:: 3. Reintentar reemplazo hasta que Windows y OneDrive liberen el bloqueo de archivos
+set INTENTOS=0
+:BUCLE_REEMPLAZO
+set /a INTENTOS+=1
 timeout /t 1 /nobreak > nul
 if exist "{ruta_exe_nuevo}" (
-    move /y "{ruta_exe_nuevo}" "{ruta_exe_actual}"
+    move /y "{ruta_exe_nuevo}" "{ruta_exe_actual}" >nul 2>&1
+    if errorlevel 1 (
+        if !INTENTOS! lss 30 goto BUCLE_REEMPLAZO
+    )
+)
+
+:: 4. Pausa de seguridad para sincronizacion de sistema de archivos
+timeout /t 2 /nobreak > nul
+
+:: 5. Iniciar la version actualizada
+if exist "{ruta_exe_actual}" (
     start "" "{ruta_exe_actual}"
 )
+
+:: 6. Auto-eliminacion del archivo temporal de actualizacion
+timeout /t 1 /nobreak > nul
 del "%~f0"
 """
         with open(ruta_bat, "w", encoding="utf-8") as f:
@@ -537,7 +619,7 @@ del "%~f0"
         app.log("✨ Descarga completada al 100%. Reiniciando bot...", "success")
         time.sleep(1)
 
-        # 4. Iniciar script y cerrar aplicación actual
+        # 5. Iniciar script y cerrar aplicación actual
         subprocess.Popen(["cmd.exe", "/c", ruta_bat], creationflags=subprocess.CREATE_NO_WINDOW)
         os._exit(0)
 
@@ -1294,6 +1376,29 @@ def llenar_select(page, campo, valor, timeout_ms, app):
         except Exception as e_scroll:
             app.log(f"      ⚠️ Detalle en búsqueda de lista: {e_scroll}", "detail")
 
+    # Fallback si el selector permite o requiere búsqueda por tipeo (showSearch)
+    try:
+        search_inp = modal_top.locator(".ant-select-focused input, .ant-select-open input, .ant-select-selection-search input").last
+        if search_inp.count() > 0 and search_inp.is_visible():
+            search_inp.fill("")
+            time.sleep(0.05)
+            search_inp.type(str(valor), delay=40)
+            time.sleep(0.4)
+            opcs_filtradas = dropdown_activo.locator(".ant-select-item-option:not(.ant-select-item-option-disabled)")
+            if opcs_filtradas.count() > 0:
+                for idx_f in range(opcs_filtradas.count()):
+                    txt_f = opcs_filtradas.nth(idx_f).inner_text().strip()
+                    if normalizar_texto(txt_f) == valor_norm or valor_norm in normalizar_texto(txt_f):
+                        app.log(f"      🎯 Seleccionada opción filtrada por búsqueda '{txt_f}' (para '{valor}')", "detail")
+                        hacer_clic_opcion(opcs_filtradas.nth(idx_f))
+                        time.sleep(0.2)
+                        return
+                hacer_clic_opcion(opcs_filtradas.first)
+                time.sleep(0.2)
+                return
+    except Exception:
+        pass
+
     raise ValueError(f"La opción '{valor}' no se encuentra en la lista del menú activo")
 
 
@@ -1499,7 +1604,7 @@ def llenar_campo_composicion(page, campo, fila, app, cfg):
         modal_top = modal_activo.last
         target = modal_top.locator(campo["selector"]).last
         if target.count() == 0:
-            target = modal_top.locator(f".ant-form-item:has-text('{col_nombre}') input").last
+            target = modal_top.locator(f".ant-form-item:has-text('{col_nombre}') input, .ant-form-item:has-text('{col_nombre}') textarea").last
         if target.count() == 0:
             target = modal_top.locator(f".ant-form-item:has-text('{col_nombre}') .ant-select-selector").last
     else:
@@ -1538,12 +1643,19 @@ def llenar_campo_composicion(page, campo, fila, app, cfg):
             llenar_select(page, campo, valor, timeout_ms, app)
         elif campo["tipo"] == "autocompletar":
             es_campo_ing_mezcla = "mezcla" in col_norm or "ingrediente" in col_norm
+            es_campo_grupo = "grupo" in col_norm
             if tipo_fila == "mezcla" and es_campo_ing_mezcla:
                 app.log(f"   ℹ️ Modo Mezcla: seleccionando '{valor}' directamente de la lista desplegable sin escribir...", "detail")
                 campo_mezcla = dict(campo)
                 campo_mezcla["tipo"] = "select"
                 campo_mezcla["selector"] = ".ant-select:has(#referenceMixtureId) .ant-select-selector, .ant-form-item:has(#referenceMixtureId) .ant-select-selector"
                 llenar_select(page, campo_mezcla, valor, timeout_ms, app)
+            elif es_campo_grupo:
+                app.log(f"   ℹ️ Campo de grupo: seleccionando '{valor}' directamente de la lista desplegable...", "detail")
+                campo_grp = dict(campo)
+                campo_grp["tipo"] = "select"
+                campo_grp["selector"] = r".ant-modal:not([style*='display: none']) .ant-form-item:has-text('Grupo') .ant-select-selector, .ant-modal:not([style*='display: none']) form > div > div:nth-child(1) .ant-select-selector, " + campo.get("selector", "")
+                llenar_select(page, campo_grp, valor, timeout_ms, app)
             else:
                 llenar_autocompletar_composicion(page, campo, valor, timeout_ms, app)
         elif campo["tipo"] == "multiselect":
@@ -2149,7 +2261,11 @@ def ejecutar(ruta_excel, nombre_proceso, app):
 
                     try:
                         app.log(f"   🖱️ Abrir ventana modal...", "detail")
-                        page.locator(selector_abrir).first.click(timeout=timeout_ms)
+                        btn_abrir_elem = page.locator(selector_abrir).first
+                        try:
+                            btn_abrir_elem.evaluate("el => el.click()")
+                        except Exception:
+                            btn_abrir_elem.click(timeout=timeout_ms)
 
                         app.log(f"   ⏳ Esperando ventana modal...", "detail")
                         page.wait_for_selector(selector_modal, state="visible", timeout=timeout_ms)
@@ -2212,8 +2328,13 @@ def ejecutar(ruta_excel, nombre_proceso, app):
 
                         app.log(f"   💾 Enviando y guardando formulario...", "detail")
                         btn_env = page.locator(selector_enviar).first
-                        if btn_env.count() > 0 and btn_env.is_visible():
-                            btn_env.click(force=True, timeout=timeout_ms)
+                        if btn_env.count() == 0 or not btn_env.is_visible():
+                            btn_env = page.locator(".ant-modal:not([style*='display: none']) .ant-modal-footer button.ant-btn-primary, .ant-modal-footer button.ant-btn-primary, button:has-text('Guardar'), button:has-text('Aceptar'), button:has-text('Adicionar'), button[type='submit']").first
+                        if btn_env.count() > 0:
+                            try:
+                                btn_env.evaluate("el => el.click()")
+                            except Exception:
+                                btn_env.click(force=True, timeout=timeout_ms)
                         else:
                             page.locator(".ant-modal-footer button.ant-btn-primary, button:has-text('Guardar'), button:has-text('Adicionar'), button[type='submit']").first.click(force=True)
 
