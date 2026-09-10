@@ -1,6 +1,6 @@
 {
-  "version": "v1.1.9.1",
-  "exe_url": "https://github.com/Danielcastro5/bot-invima/releases/download/v1.1.9.1/Automatizador_INVIMA.exe",
+  "version": "v1.2.1",
+  "exe_url": "https://github.com/Danielcastro5/bot-invima/releases/download/v1.2.1/Automatizador_INVIMA.exe",
   "config_url": "",
-  "novedades": "• Corrección y optimización en el registro de Características Organolépticas para la selección fluida del grupo cosmético.\n• Mayor compatibilidad en casillas de descripción para Color, Olor y Sabor.\n• Mayor confiabilidad en el guardado automático de formularios sin demoras.\n• Optimización del sistema de actualización automática para una instalación más limpia."
+  "novedades": "• Nuevo interruptor rectangular de diseño suave para activar o desactivar la Selección Manual de Función.\n• Detención Segura Mejorada: Al pausar o detener, el sistema asegura el trámite sin omitir funciones ni guardar ingredientes incompletos, ofreciendo las opciones de Continuar o Descartar.\n• Búsqueda Automática Directa de Funciones: Encuentra y marca directamente las funciones requeridas en la lista del portal sin escribir en el campo y con sistema de reintentos inteligentes.\n• Soporte integrado para Ingredientes, Fórmula Marco y Composición por Grupo."
 }

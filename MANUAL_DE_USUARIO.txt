@@ -1,5 +1,5 @@
 ========================================================================
-                   AUTOMATIZADOR INVIMA v1.1.9.1
+                   AUTOMATIZADOR INVIMA v1.2.1
              MANUAL DE USUARIO Y GUÍA DE OPERACIÓN
 ========================================================================
 
@@ -92,12 +92,26 @@ Encabezados requeridos en la Fila 1:
   • Columna: Olor
   • Columna: Sabor
 
-4. MANEJO DE ERRORES Y REPORTES
+4. SELECCIÓN DE "FUNCIÓN" EN INGREDIENTES (MODO AUTOMÁTICO Y MANUAL)
+------------------------------------------------------------------------
+Para los procesos que registran ingredientes (Ingredientes, Fórmula Marco y Composición por Grupo):
+• Modo Automático (Por defecto):
+  El bot lee las funciones indicadas en la columna "Función" del Excel y las busca directamente en el menú desplegable del portal INVIMA. Puedes ingresar múltiples funciones en la misma celda separándolas con comas (ejemplo: "Antioxidante, Conservante, Perfume").
+• Modo Manual Opcional:
+  Si activas el interruptor rectangular "🖐️ Selección manual para 'Función'" en la aplicación:
+  - El bot llena automáticamente los campos previos del ingrediente.
+  - Al llegar al campo "Función", abre el menú desplegable y se detiene en pausa interactiva.
+  - En la esquina superior derecha de Google Chrome y en la aplicación aparecerán dos botones:
+    * [ Continuar ▶ ]: Guarda las funciones que hayas marcado con el mouse y continúa completando el ingrediente.
+    * [ 🛑 Descartar ]: Cierra la ventana del ingrediente sin guardar datos incompletos.
+  - Al presionar 'Detener' en el bot, el sistema te permite decidir si deseas guardar el ingrediente en curso con [ Continuar ▶ ] o cancelarlo con [ 🛑 Descartar ], garantizando una detención 100% segura sin pérdida ni corrupción de datos.
+
+5. MANEJO DE ERRORES Y REPORTES
 ------------------------------------------------------------------------
 - Si una fila presenta inconsistencias, el bot realizará hasta 3 reintentos automáticos por fila.
 - Si tras 3 intentos no se logra registrar la fila, el bot guardará un reporte detallado en un archivo de texto con el número de fila exacto y la causa, y continuará con las siguientes filas sin detener la ejecución.
 
-5. CLÁUSULA DE EXENCIÓN DE RESPONSABILIDAD LEGAL (DISCLAIMER)
+6. CLÁUSULA DE EXENCIÓN DE RESPONSABILIDAD LEGAL (DISCLAIMER)
 ------------------------------------------------------------------------
 • El software Automatizador INVIMA es una herramienta de asistencia y automatización robótica de tareas (RPA).
 • EL DESARROLLADOR / PROVEEDOR NO SE HACE RESPONSABLE por mal uso de la herramienta, datos mal digitados por el usuario, errores en la plantilla Excel, nombres de encabezados incorrectos, inconsistencias en los registros ante la entidad INVIMA o multas/sanciones derivadas de información errónea ingresada por el usuario.

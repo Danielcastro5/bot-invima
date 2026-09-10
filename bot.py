@@ -21,6 +21,7 @@ import ctypes
 from datetime import datetime
 import socket
 import shutil
+import math
 
 # Activar Alta Resolución Nativa en Windows (Evita pixelación y texto borroso por escalado)
 try:
@@ -47,7 +48,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 PUERTO_CHROME = 9222   # Puerto de depuración de Chrome
 
-VERSION_ACTUAL = "v1.1.9.1"
+VERSION_ACTUAL = "v1.2.1"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/Danielcastro5/bot-invima/main/version.json"
 FIREBASE_DB_URL = "https://bot-invima-licencias-default-rtdb.firebaseio.com"
 SECRET_SALT_LICENCIA = "BOT_INVIMA_SECURE_AUTH_SALT_2026_V1"
@@ -490,7 +491,12 @@ def buscar_actualizaciones_github(app):
             if not version_remota:
                 return
 
-            if version_remota != VERSION_ACTUAL and not version_remota.startswith(VERSION_ACTUAL):
+            def _parse_version(v):
+                import re
+                nums = re.findall(r'\d+', str(v))
+                return tuple(int(x) for x in nums) if nums else (0,)
+
+            if _parse_version(version_remota) > _parse_version(VERSION_ACTUAL):
                 app.log(f"🔔 ¡NUEVA VERSIÓN DISPONIBLE! ({version_remota})", "warning")
                 app.mostrar_modal_actualizacion(data)
             else:
@@ -1135,102 +1141,369 @@ def llenar_autocompletar_composicion(page, campo, valor, timeout_ms, app):
         time.sleep(pausa_post_clic)
 
 
+def esperar_seleccion_manual_funcion(page, campo, app):
+    """
+    Pausa interactiva para el campo 'Función':
+    Abre el menú desplegable en el portal, inyecta un banner flotante en Chrome
+    con opciones para 'Continuar' o 'Descartar', y espera la decisión del usuario.
+    Si el usuario presiona 'Detener' en el bot, NO salta la función ni guarda datos corruptos;
+    espera a que el usuario decida guardar este último ingrediente o descartarlo.
+    """
+    app.log("🖐️ [MODO MANUAL] Selecciona la(s) función(es) para este ingrediente en el portal de INVIMA.", "warning")
+    app.log("👉 Pulsa 'Continuar' cuando termines, o 'Descartar' si deseas cancelar este ingrediente.", "info")
+
+    modal_activo = page.locator(".ant-modal:not([style*='display: none'])")
+    modal_top = modal_activo.last if modal_activo.count() > 0 else page
+
+    dropdown_sel = ".ant-select-dropdown:not(.ant-select-dropdown-hidden)"
+    col_nombre = campo.get("columna", "Función")
+
+    try:
+        if page.locator(dropdown_sel).count() == 0:
+            selector_box = modal_top.locator(f".ant-form-item:has-text('Función') .ant-select-selector, .ant-form-item:has-text('Funcion') .ant-select-selector, .ant-form-item:has-text('{col_nombre}') .ant-select-selector").last
+            if selector_box.count() > 0:
+                selector_box.click(force=True, timeout=1200)
+            else:
+                target = modal_top.locator(campo.get("selector", "")).last
+                if target.count() > 0:
+                    target.click(force=True, timeout=1200)
+    except Exception:
+        pass
+
+    # Inyectar banner flotante moderno en Chrome con dos opciones claras
+    js_inyectar_banner = """
+    (() => {
+        let banner = document.getElementById('invima_banner_manual_funcion');
+        if (banner) banner.remove();
+
+        window.__invima_continuar_manual = false;
+        window.__invima_cancelar_manual = false;
+
+        banner = document.createElement('div');
+        banner.id = 'invima_banner_manual_funcion';
+        banner.style.position = 'fixed';
+        banner.style.top = '16px';
+        banner.style.right = '24px';
+        banner.style.zIndex = '9999999';
+        banner.style.backgroundColor = '#1E1B4B';
+        banner.style.color = '#FFFFFF';
+        banner.style.padding = '14px 20px';
+        banner.style.borderRadius = '12px';
+        banner.style.boxShadow = '0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.3)';
+        banner.style.fontFamily = 'Segoe UI, system-ui, sans-serif';
+        banner.style.display = 'flex';
+        banner.style.alignItems = 'center';
+        banner.style.gap = '14px';
+        banner.style.border = '2px solid #7D51E9';
+
+        banner.innerHTML = `
+            <div style="display: flex; flex-direction: column;">
+                <span id="txt_banner_manual_titulo" style="font-weight: 700; font-size: 13px; color: #F8FAFC;">🖐️ Selección manual de Función</span>
+                <span id="txt_banner_manual_desc" style="font-size: 11px; color: #CBD5E1;">Elige la(s) función(es) en la lista del portal:</span>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <button id="btn_invima_continuar_manual" style="
+                    background: linear-gradient(135deg, #0DBE8A, #059669);
+                    color: #FFFFFF;
+                    border: none;
+                    padding: 8px 16px;
+                    border-radius: 8px;
+                    font-weight: 700;
+                    font-size: 12px;
+                    cursor: pointer;
+                    box-shadow: 0 4px 12px rgba(13, 190, 138, 0.35);
+                ">
+                    Continuar ▶
+                </button>
+                <button id="btn_invima_cancelar_manual" style="
+                    background: #EF4444;
+                    color: #FFFFFF;
+                    border: none;
+                    padding: 8px 14px;
+                    border-radius: 8px;
+                    font-weight: 700;
+                    font-size: 12px;
+                    cursor: pointer;
+                    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25);
+                ">
+                    🛑 Descartar
+                </button>
+            </div>
+        `;
+
+        document.body.appendChild(banner);
+
+        const btnCont = document.getElementById('btn_invima_continuar_manual');
+        if (btnCont) {
+            btnCont.onclick = () => {
+                window.__invima_continuar_manual = true;
+                banner.style.opacity = '0.5';
+                btnCont.innerText = 'Guardando...';
+            };
+        }
+
+        const btnCanc = document.getElementById('btn_invima_cancelar_manual');
+        if (btnCanc) {
+            btnCanc.onclick = () => {
+                window.__invima_cancelar_manual = true;
+                banner.style.opacity = '0.5';
+                btnCanc.innerText = 'Descartando...';
+            };
+        }
+    })();
+    """
+
+    try:
+        page.evaluate(js_inyectar_banner)
+    except Exception as e:
+        app.log(f"   ℹ️ Interfaz interactiva: {e}", "detail")
+
+    # Notificar a la GUI del bot
+    app.confirmar_manual_listo = False
+    app.cancelar_ingrediente_actual = False
+    if hasattr(app, "activar_espera_manual_ui"):
+        app.activar_espera_manual_ui(True)
+
+    banner_aviso_detener_puesto = False
+
+    # Ciclo de espera activo: NO sale a ciegas si app.debe_detener es True, espera decisión del usuario
+    while True:
+        # 1. Comprobar decisiones desde Chrome
+        try:
+            if page.evaluate("() => window.__invima_cancelar_manual === true"):
+                app.cancelar_ingrediente_actual = True
+                app.debe_detener = True
+                break
+            if page.evaluate("() => window.__invima_continuar_manual === true"):
+                break
+        except Exception:
+            pass
+
+        # 2. Comprobar decisiones desde la GUI del Bot
+        if getattr(app, "cancelar_ingrediente_actual", False):
+            break
+        if getattr(app, "confirmar_manual_listo", False):
+            break
+
+        # 3. Si el usuario pulsó 'Detener' en los botones principales del bot, avisar en Chrome
+        if app.debe_detener and not banner_aviso_detener_puesto:
+            banner_aviso_detener_puesto = True
+            try:
+                page.evaluate("""() => {
+                    const b = document.getElementById('invima_banner_manual_funcion');
+                    if (b) {
+                        b.style.borderColor = '#EF4444';
+                        const desc = document.getElementById('txt_banner_manual_desc');
+                        if (desc) desc.innerText = '🛑 Detención solicitada: Pulsa Continuar para guardar este ingrediente, o Descartar para salir.';
+                    }
+                }""")
+            except Exception:
+                pass
+
+        time.sleep(0.2)
+
+    # Limpieza del banner flotante en Chrome
+    try:
+        page.evaluate("() => { const b = document.getElementById('invima_banner_manual_funcion'); if (b) b.remove(); }")
+    except Exception:
+        pass
+
+    # Desactivar botón de espera en la GUI del bot
+    if hasattr(app, "activar_espera_manual_ui"):
+        app.activar_espera_manual_ui(False)
+
+    if getattr(app, "cancelar_ingrediente_actual", False):
+        app.log("🛑 Ingrediente actual descartado por el usuario a petición manual.", "warning")
+        try:
+            page.keyboard.press("Escape")
+            time.sleep(0.3)
+        except Exception:
+            pass
+        return
+
+    # Cerrar el menú desplegable en Chrome con Escape
+    try:
+        page.keyboard.press("Escape")
+        time.sleep(0.2)
+    except Exception:
+        pass
+
+    # Contar funciones seleccionadas visualmente
+    try:
+        cant_sel = modal_top.locator(f".ant-form-item:has-text('Función') .ant-select-selection-item, .ant-form-item:has-text('Funcion') .ant-select-selection-item, .ant-form-item:has-text('{col_nombre}') .ant-select-selection-item").count()
+        if cant_sel > 0:
+            app.log(f"   ✅ Se registraron {cant_sel} función(es) seleccionada(s) manualmente.", "success")
+        else:
+            app.log("   ℹ️ Continuando con selección directa en portal.", "detail")
+    except Exception:
+        pass
+
+
 def llenar_multiselect(page, campo, valor, timeout_ms, app):
+    """
+    Selección automática directa para el campo 'Función' (Multiselect):
+    Lee el Excel y busca directamente la coincidencia en la lista desplegable sin escribir
+    caracteres en el campo. Si una función no existe en el portal, lanza un error para que
+    el sistema de reintentos vuelva a intentarlo en lugar de continuar con datos incompletos.
+    """
     import re
     items = [x.strip() for x in re.split(r'[,;|\n]', str(valor)) if x.strip()]
     if not items:
         return
 
-    selector = campo["selector"]
     modal_activo = page.locator(".ant-modal:not([style*='display: none'])")
-    if modal_activo.count() > 0:
-        modal_top = modal_activo.last
-        target = modal_top.locator(selector).last
-        if target.count() == 0:
-            target = modal_top.locator(f".ant-form-item:has-text('{campo['columna']}') input").last
-        if target.count() == 0:
-            target = modal_top.locator(f".ant-form-item:has-text('{campo['columna']}') .ant-select-selector").last
-        if target.count() == 0:
-            target = page.locator(selector).last
-    else:
-        modal_top = page
-        target = page.locator(selector).last
+    modal_top = modal_activo.last if modal_activo.count() > 0 else page
 
-    sugerencia_sel = campo.get("selector_sugerencia") or ".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option"
+    dropdown_sel = ".ant-select-dropdown:not(.ant-select-dropdown-hidden)"
+    col_nombre = campo.get("columna", "Función")
+
+    selector_box_candidatos = [
+        modal_top.locator(".ant-form-item:has-text('Función') .ant-select-selector").last,
+        modal_top.locator(".ant-form-item:has-text('Funcion') .ant-select-selector").last,
+        modal_top.locator(f".ant-form-item:has-text('{col_nombre}') .ant-select-selector").last,
+        modal_top.locator(".ant-form-item:has-text('Función') .ant-select-selection-overflow").last,
+        modal_top.locator(".ant-form-item:has-text('Funcion') .ant-select-selection-overflow").last,
+        modal_top.locator(".ant-modal-body .ant-select-multiple .ant-select-selector").last,
+        modal_top.locator(".ant-select-multiple .ant-select-selector").last,
+        page.locator(".ant-modal:not([style*='display: none']) .ant-form-item:has-text('Función') .ant-select-selector").last,
+        page.locator(".ant-modal:not([style*='display: none']) .ant-form-item:has-text('Funcion') .ant-select-selector").last,
+        page.locator(".ant-modal:not([style*='display: none']) .ant-select-multiple .ant-select-selector").last,
+    ]
+
+    menu_abierto = False
+    for box in selector_box_candidatos:
+        if box is None:
+            continue
+        try:
+            if box.count() > 0:
+                box.scroll_into_view_if_needed(timeout=500)
+                box.evaluate("el => el.click()")
+                time.sleep(0.3)
+                if page.locator(dropdown_sel).count() > 0:
+                    menu_abierto = True
+                    break
+                box.click(force=True, timeout=1000)
+                time.sleep(0.3)
+                if page.locator(dropdown_sel).count() > 0:
+                    menu_abierto = True
+                    break
+        except Exception:
+            continue
+
+    if not menu_abierto or page.locator(dropdown_sel).count() == 0:
+        for box in selector_box_candidatos:
+            try:
+                if box and box.count() > 0:
+                    box.click(force=True, timeout=600)
+                    time.sleep(0.2)
+                    page.keyboard.press("ArrowDown")
+                    time.sleep(0.3)
+                    if page.locator(dropdown_sel).count() > 0:
+                        menu_abierto = True
+                        break
+            except Exception:
+                pass
+
+    if page.locator(dropdown_sel).count() == 0:
+        raise ValueError(f"No se pudo abrir el menú desplegable para el campo '{col_nombre}'")
+
+    dropdown_activo = page.locator(dropdown_sel).last
 
     for idx, item in enumerate(items):
         item_norm = normalizar_texto(item)
         app.log(f"      ➔ Seleccionando función ({idx+1}/{len(items)}): '{item}'", "detail")
 
-        # Asegurar foco haciendo clic en el selector visual de la fila
-        try:
-            modal_top.locator(f".ant-form-item:has-text('{campo['columna']}') .ant-select-selector").last.click(force=True, timeout=1500)
-            time.sleep(0.3)
-        except Exception:
-            try:
-                target.click(force=True, timeout=1500)
-                time.sleep(0.3)
-            except Exception:
-                pass
-
-        for intento_t in range(1, 3):
-            try:
+        # Asegurar que el menú siga visible
+        if page.locator(dropdown_sel).count() == 0:
+            for box in selector_box_candidatos:
+                if box is None:
+                    continue
                 try:
-                    target.fill("")
-                    time.sleep(0.1)
+                    if box.count() > 0:
+                        box.evaluate("el => el.click()")
+                        time.sleep(0.3)
+                        if page.locator(dropdown_sel).count() > 0:
+                            break
                 except Exception:
                     pass
-
-                target.type(str(item), delay=60)
-                time.sleep(0.4)
-
-                timeout_intento = min(3500, timeout_ms)
-                page.wait_for_selector(sugerencia_sel, timeout=timeout_intento)
-                break
-            except PWTimeout:
-                try:
-                    target.fill("")
-                    time.sleep(0.2)
-                    target.type(item, delay=80)
-                except Exception:
-                    pass
-
-        dropdown_activo = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)").last
-        opciones = dropdown_activo.locator(".ant-select-item-option, div[role='option'], .ant-select-item-option-content")
-        total = opciones.count()
-        if total == 0:
-            opciones = page.locator(sugerencia_sel)
-            total = opciones.count()
-
-        if total == 0:
-            app.log(f"      ⚠️ No se hallaron opciones para '{item}'", "warning")
-            continue
+            dropdown_activo = page.locator(dropdown_sel).last
 
         encontrado = False
-        for k in range(total):
-            txt_opcion = opciones.nth(k).inner_text()
-            if normalizar_texto(txt_opcion) == item_norm:
-                hacer_clic_opcion(opciones.nth(k))
-                encontrado = True
-                time.sleep(0.4)
-                break
 
-        if not encontrado:
-            for k in range(total):
-                txt_opcion = opciones.nth(k).inner_text()
-                txt_norm = normalizar_texto(txt_opcion)
-                if txt_norm.startswith(item_norm) or item_norm in txt_norm:
-                    hacer_clic_opcion(opciones.nth(k))
+        # 1. Búsqueda en opciones visibles actuales (búsqueda directa exacta y semejante sin escribir)
+        opciones = dropdown_activo.locator(".ant-select-item-option, .ant-select-item-option-content")
+        cnt = opciones.count()
+
+        for k in range(cnt):
+            opt = opciones.nth(k)
+            try:
+                txt = opt.inner_text().strip()
+                t_norm = normalizar_texto(txt)
+                if t_norm == item_norm or (len(item_norm) >= 4 and (t_norm.startswith(item_norm) or item_norm in t_norm or t_norm in item_norm)):
+                    # Comprobar si ya está seleccionada para no desmarcarla
+                    clase = opt.get_attribute("class") or ""
+                    aria_sel = opt.get_attribute("aria-selected") or ""
+                    if aria_sel == "true" or "ant-select-item-option-selected" in clase:
+                        app.log(f"      ℹ️ Función '{txt}' ya se encuentra seleccionada.", "detail")
+                        encontrado = True
+                        break
+                    app.log(f"      🎯 Seleccionada función directa: '{txt}'", "detail")
+                    hacer_clic_opcion(opt)
                     encontrado = True
-                    time.sleep(0.4)
+                    time.sleep(0.25)
                     break
+            except Exception:
+                continue
 
-        if not encontrado and total > 0:
-            hacer_clic_opcion(opciones.first)
-            time.sleep(0.4)
+        # 2. Si no se encontró en la primera vista, realizar scroll en la lista virtual para inspeccionar las demás
+        if not encontrado:
+            holder = dropdown_activo.locator(".rc-virtual-list-holder").first
+            if holder.count() > 0:
+                try:
+                    holder.evaluate("el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')); }")
+                    time.sleep(0.06)
 
+                    max_scrolls = 18
+                    for s_step in range(max_scrolls):
+                        opcs_scroll = dropdown_activo.locator(".ant-select-item-option, .ant-select-item-option-content")
+                        for m in range(opcs_scroll.count()):
+                            opt_m = opcs_scroll.nth(m)
+                            try:
+                                txt_m = opt_m.inner_text().strip()
+                                tm_norm = normalizar_texto(txt_m)
+                                if tm_norm == item_norm or (len(item_norm) >= 4 and (tm_norm.startswith(item_norm) or item_norm in tm_norm or tm_norm in item_norm)):
+                                    clase = opt_m.get_attribute("class") or ""
+                                    aria_sel = opt_m.get_attribute("aria-selected") or ""
+                                    if aria_sel == "true" or "ant-select-item-option-selected" in clase:
+                                        app.log(f"      ℹ️ Función '{txt_m}' ya se encuentra seleccionada.", "detail")
+                                        encontrado = True
+                                        break
+                                    app.log(f"      🎯 Seleccionada función tras búsqueda en lista: '{txt_m}'", "detail")
+                                    hacer_clic_opcion(opt_m)
+                                    encontrado = True
+                                    time.sleep(0.25)
+                                    break
+                            except Exception:
+                                continue
+
+                        if encontrado:
+                            break
+
+                        # Scroll siguiente paso
+                        holder.evaluate("el => { el.scrollTop += 180; el.dispatchEvent(new Event('scroll')); }")
+                        time.sleep(0.08)
+
+                except Exception as e_scroll:
+                    app.log(f"      ℹ️ Desplazamiento en lista: {e_scroll}", "detail")
+
+        # 3. Si definitivamente no se encontró, LANZAR ERROR para que el sistema de reintentos vuelva a probar
+        if not encontrado:
+            raise ValueError(f"No se encontró la función '{item}' en la lista desplegable de opciones del portal INVIMA.")
+
+    # Cerrar menú desplegable al finalizar todas las funciones
     try:
         page.keyboard.press("Escape")
+        time.sleep(0.2)
     except Exception:
         pass
 
@@ -1588,9 +1861,26 @@ def llenar_campo_composicion(page, campo, fila, app, cfg):
     tipo_fila = normalizar_texto(fila.get("Tipo") or fila.get("tipo") or "")
     col_norm = normalizar_texto(col_nombre)
 
+    if getattr(app, "cancelar_ingrediente_actual", False):
+        return
+
     # Si la fila es de Tipo Mezcla, ignorar campos que no aplican a mezclas en el portal
     if tipo_fila == "mezcla":
         if "nanomaterial" in col_norm or "particula" in col_norm or "listado" in col_norm or "referencia" in col_norm or "funcion" in col_norm:
+            return
+
+    # Detección y manejo especializado del campo Función (Manual o Automático)
+    es_campo_funcion = ("funcion" in col_norm) or (campo.get("tipo") == "multiselect")
+    if es_campo_funcion and tipo_fila != "mezcla":
+        modo_manual = getattr(app, "modo_manual_funcion", False)
+        if modo_manual:
+            esperar_seleccion_manual_funcion(page, campo, app)
+            return
+        else:
+            if not valor or str(valor).strip() == "":
+                app.log(f"   ℹ️ Campo '{col_nombre}' vacío en Excel para este registro.", "detail")
+                return
+            llenar_multiselect(page, campo, valor, timeout_ms, app)
             return
 
     if not valor or str(valor).strip() == "":
@@ -1843,6 +2133,23 @@ def ejecutar_proceso_formula_marco(page, proceso_cfg, filas, app, cfg, timeout_m
 
                     for campo in campos_ingrediente:
                         llenar_campo(page, campo, fila_ing, linea_ex, app, cfg, "Composición")
+                        if getattr(app, "cancelar_ingrediente_actual", False):
+                            break
+
+                    if getattr(app, "cancelar_ingrediente_actual", False):
+                        app.log(f"      🛑 Ingrediente descartado por el usuario. Cancelando ventana...", "warning")
+                        try:
+                            page.keyboard.press("Escape")
+                            time.sleep(0.3)
+                            btn_canc = page.locator(".ant-modal:not([style*='display: none']) button:has-text('Cancelar'), .ant-modal:not([style*='display: none']) .ant-modal-close").last
+                            if btn_canc.count() > 0:
+                                btn_canc.click(force=True)
+                        except Exception:
+                            pass
+                        app.cancelar_ingrediente_actual = False
+                        if app.debe_detener:
+                            break
+                        continue
 
                     app.log(f"      💾 Guardando ingrediente...", "detail")
                     btn_guardar_ing = page.locator(selector_guardar_ing).last
@@ -2085,6 +2392,23 @@ def ejecutar_proceso_composicion_grupo(page, proceso_cfg, filas, app, cfg, timeo
                     # Llenar campos de ingrediente
                     for campo in campos_ingrediente:
                         llenar_campo(page, campo, fila_ing, linea_ex, app, cfg, "Composición")
+                        if getattr(app, "cancelar_ingrediente_actual", False):
+                            break
+
+                    if getattr(app, "cancelar_ingrediente_actual", False):
+                        app.log(f"      🛑 Ingrediente descartado por el usuario. Cancelando ventana...", "warning")
+                        try:
+                            page.keyboard.press("Escape")
+                            time.sleep(0.3)
+                            btn_canc = page.locator(".ant-modal:not([style*='display: none']) button:has-text('Cancelar'), .ant-modal:not([style*='display: none']) .ant-modal-close").last
+                            if btn_canc.count() > 0:
+                                btn_canc.click(force=True)
+                        except Exception:
+                            pass
+                        app.cancelar_ingrediente_actual = False
+                        if app.debe_detener:
+                            break
+                        continue
 
                     # Guardar ingrediente (en el sub-modal de ingrediente)
                     app.log(f"      💾 Guardando ingrediente...", "detail")
@@ -2325,6 +2649,23 @@ def ejecutar(ruta_excel, nombre_proceso, app):
                             if "PON_EL_SELECTOR" in campo["selector"]:
                                 continue
                             llenar_campo(page, campo, fila, linea_excel, app, cfg, nombre_proceso)
+                            if getattr(app, "cancelar_ingrediente_actual", False):
+                                break
+
+                        if getattr(app, "cancelar_ingrediente_actual", False):
+                            app.log(f"   🛑 Registro descartado por el usuario. Cancelando ventana...", "warning")
+                            try:
+                                page.keyboard.press("Escape")
+                                time.sleep(0.3)
+                                btn_canc = page.locator(".ant-modal:not([style*='display: none']) button:has-text('Cancelar'), .ant-modal:not([style*='display: none']) .ant-modal-close").last
+                                if btn_canc.count() > 0:
+                                    btn_canc.click(force=True)
+                            except Exception:
+                                pass
+                            app.cancelar_ingrediente_actual = False
+                            if app.debe_detener:
+                                break
+                            continue
 
                         app.log(f"   💾 Enviando y guardando formulario...", "detail")
                         btn_env = page.locator(selector_enviar).first
@@ -2436,6 +2777,186 @@ def ejecutar(ruta_excel, nombre_proceso, app):
 
 
 # --------------------------------------------------------------------------
+#  Interruptor Rectangular de Movimiento Suave (Cubic Ease-Out)
+# --------------------------------------------------------------------------
+class ElegantRectSwitch(ctk.CTkFrame):
+    """
+    Interruptor Rectangular de Movimiento Suave (Cubic Ease-Out).
+    Altamente visual, estético y diseñado con la paleta de colores corporativa (#7D51E9).
+    """
+    def __init__(self, master, width=230, height=34, command=None, **kwargs):
+        super().__init__(
+            master,
+            width=width,
+            height=height,
+            corner_radius=8,
+            fg_color="#F1F5F9",
+            border_width=2,
+            border_color="#CBD5E1",
+            **kwargs
+        )
+        self.pack_propagate(False)
+        self.w = width
+        self.h = height
+        self.command = command
+        self.state = False
+        self._animating = False
+
+        pad = 3
+        self.thumb_w = (width // 2) - pad
+        self.thumb_h = height - (pad * 2)
+        self.min_x = pad
+        self.max_x = width - self.thumb_w - pad
+        self.current_x = float(self.min_x)
+
+        # Labels de fondo estáticos (se ven en la mitad descubierta)
+        self.bg_off = ctk.CTkLabel(
+            self,
+            text="🔴 APAGADO",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#94A3B8",
+            cursor="hand2"
+        )
+        self.bg_off.place(x=self.min_x + (self.thumb_w // 2), y=height // 2, anchor="center")
+
+        self.bg_on = ctk.CTkLabel(
+            self,
+            text="🟢 ENCENDIDO",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#94A3B8",
+            cursor="hand2"
+        )
+        self.bg_on.place(x=self.max_x + (self.thumb_w // 2), y=height // 2, anchor="center")
+
+        # Bloque rectangular deslizante
+        self.thumb = ctk.CTkFrame(
+            self,
+            width=self.thumb_w,
+            height=self.thumb_h,
+            corner_radius=6,
+            fg_color="#FFFFFF",
+            border_width=1,
+            border_color="#CBD5E1",
+            cursor="hand2"
+        )
+        self.thumb.place(x=int(self.current_x), y=pad)
+
+        # Texto sobre el bloque deslizante
+        self.thumb_lbl = ctk.CTkLabel(
+            self.thumb,
+            text="🔴 APAGADO",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#DC2626",
+            cursor="hand2"
+        )
+        self.thumb_lbl.place(relx=0.5, rely=0.5, anchor="center")
+
+        self._bind_click_recursive(self)
+
+    def _bind_click_recursive(self, widget):
+        try:
+            widget.configure(cursor="hand2")
+        except Exception:
+            pass
+        widget.bind("<Button-1>", self._on_click)
+        if hasattr(widget, "_canvas") and widget._canvas:
+            try:
+                widget._canvas.configure(cursor="hand2")
+            except Exception:
+                pass
+            widget._canvas.bind("<Button-1>", self._on_click)
+        if hasattr(widget, "_label") and widget._label:
+            try:
+                widget._label.configure(cursor="hand2")
+            except Exception:
+                pass
+            widget._label.bind("<Button-1>", self._on_click)
+        if hasattr(widget, "_text_label") and widget._text_label:
+            try:
+                widget._text_label.configure(cursor="hand2")
+            except Exception:
+                pass
+            widget._text_label.bind("<Button-1>", self._on_click)
+        for child in widget.winfo_children():
+            self._bind_click_recursive(child)
+
+    def _on_click(self, event=None):
+        if self._animating:
+            return
+        self.toggle()
+
+    def get(self):
+        return 1 if self.state else 0
+
+    def set(self, valor):
+        nuevo = bool(valor)
+        if nuevo != self.state:
+            self.state = nuevo
+            self._aplicar_estado_instantaneo()
+
+    def toggle(self):
+        if self._animating:
+            return
+        self.state = not self.state
+        self._start_animation()
+        if self.command:
+            self.command()
+
+    def _aplicar_estado_instantaneo(self):
+        pad = 3
+        if self.state:
+            self.current_x = float(self.max_x)
+            self.configure(fg_color="#7D51E9", border_color="#6D28D9")
+            self.thumb.configure(fg_color="#FFFFFF", border_color="#7D51E9")
+            self.thumb_lbl.configure(text="🟢 ENCENDIDO", text_color="#7D51E9")
+            self.bg_off.configure(text_color="#DDD6FE")
+        else:
+            self.current_x = float(self.min_x)
+            self.configure(fg_color="#F1F5F9", border_color="#CBD5E1")
+            self.thumb.configure(fg_color="#FFFFFF", border_color="#CBD5E1")
+            self.thumb_lbl.configure(text="🔴 APAGADO", text_color="#DC2626")
+            self.bg_on.configure(text_color="#94A3B8")
+        self.thumb.place(x=int(self.current_x), y=pad)
+
+    def _start_animation(self):
+        self._animating = True
+        start_x = self.current_x
+        target_x = float(self.max_x if self.state else self.min_x)
+        distance = target_x - start_x
+
+        if self.state:
+            self.configure(fg_color="#7D51E9", border_color="#6D28D9")
+            self.thumb.configure(fg_color="#FFFFFF", border_color="#7D51E9")
+            self.thumb_lbl.configure(text="🟢 ENCENDIDO", text_color="#7D51E9")
+            self.bg_off.configure(text_color="#DDD6FE")
+        else:
+            self.configure(fg_color="#F1F5F9", border_color="#CBD5E1")
+            self.thumb.configure(fg_color="#FFFFFF", border_color="#CBD5E1")
+            self.thumb_lbl.configure(text="🔴 APAGADO", text_color="#DC2626")
+            self.bg_on.configure(text_color="#94A3B8")
+
+        total_steps = 15
+        step = 0
+        pad = 3
+
+        def _step():
+            nonlocal step
+            step += 1
+            if step >= total_steps:
+                self.current_x = target_x
+                self.thumb.place(x=int(self.current_x), y=pad)
+                self._animating = False
+            else:
+                t = step / total_steps
+                ease = 1.0 - math.pow(1.0 - t, 3)
+                self.current_x = start_x + (distance * ease)
+                self.thumb.place(x=int(self.current_x), y=pad)
+                self.after(16, _step)
+
+        _step()
+
+
+# --------------------------------------------------------------------------
 #  Interfaz Gráfica Profesional con Selector de Proceso (CustomTkinter)
 # --------------------------------------------------------------------------
 class App(ctk.CTk):
@@ -2480,6 +3001,9 @@ class App(ctk.CTk):
         self.debe_pausar = False
         self.debe_detener = False
         self.en_ejecucion = False
+        self.modo_manual_funcion = False
+        self.confirmar_manual_listo = False
+        self.cancelar_ingrediente_actual = False
         self.num_exitos = 0
         self.num_errores = 0
         self.licencia_info = None
@@ -3774,9 +4298,44 @@ Paso 7: Haz clic en "▶ Iniciar automatización".
         )
         lbl_formats_hint.pack(anchor="w", padx=10, pady=(0, 4))
 
-        # FILA: BOTONES DE ACCIÓN (INICIAR, PAUSAR, DETENER)
+        # FILA 4: SELECCIÓN MANUAL DE FUNCIÓN (INTERRUPTOR RECTANGULAR FLUIDO)
+        frame_manual_card = ctk.CTkFrame(card_controls, fg_color="#F8FAFC", corner_radius=8, border_width=0)
+        frame_manual_card.grid(row=4, column=0, padx=12, pady=(2, 3), sticky="ew")
+        frame_manual_card.grid_columnconfigure(0, weight=1)
+
+        frame_manual_inner = ctk.CTkFrame(frame_manual_card, fg_color="transparent")
+        frame_manual_inner.pack(fill="x", padx=10, pady=5)
+
+        frame_manual_left = ctk.CTkFrame(frame_manual_inner, fg_color="transparent")
+        frame_manual_left.pack(side="left", fill="both", expand=True)
+
+        lbl_manual_title = ctk.CTkLabel(
+            frame_manual_left,
+            text="🖐️ Selección manual para 'Función'",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#1E1B4B"
+        )
+        lbl_manual_title.pack(anchor="w")
+
+        self.lbl_manual_sub = ctk.CTkLabel(
+            frame_manual_left,
+            text="Pausa en cada ingrediente para elegir funciones directamente en el portal",
+            font=ctk.CTkFont(family="Segoe UI", size=9),
+            text_color="#64748B"
+        )
+        self.lbl_manual_sub.pack(anchor="w")
+
+        self.sw_manual_funcion = ElegantRectSwitch(
+            frame_manual_inner,
+            width=230,
+            height=34,
+            command=self._on_switch_manual_toggled
+        )
+        self.sw_manual_funcion.pack(side="right")
+
+        # FILA 5: BOTONES DE ACCIÓN (INICIAR, PAUSAR, DETENER)
         frame_actions = ctk.CTkFrame(card_controls, fg_color="transparent")
-        frame_actions.grid(row=4, column=0, padx=12, pady=(2, 5), sticky="ew")
+        frame_actions.grid(row=5, column=0, padx=12, pady=(2, 4), sticky="ew")
         frame_actions.grid_columnconfigure((0, 1, 2), weight=1)
 
         self.btn_comenzar = ctk.CTkButton(
@@ -3823,6 +4382,58 @@ Paso 7: Haz clic en "▶ Iniciar automatización".
             command=self.action_detener
         )
         self.btn_detener.grid(row=0, column=2, padx=(4, 0), sticky="ew")
+
+        # FILA 6: BANNER INTERACTIVO DE ESPERA MANUAL (SE ACTIVA DINÁMICAMENTE)
+        self.frame_manual_waiting = ctk.CTkFrame(card_controls, fg_color="#EDE9FE", corner_radius=8, border_width=1, border_color="#7D51E9")
+        frame_wait_inner = ctk.CTkFrame(self.frame_manual_waiting, fg_color="transparent")
+        frame_wait_inner.pack(fill="x", padx=10, pady=5)
+        frame_wait_inner.grid_columnconfigure(0, weight=1)
+
+        f_wait_txt = ctk.CTkFrame(frame_wait_inner, fg_color="transparent")
+        f_wait_txt.grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(
+            f_wait_txt,
+            text="🖐️ Esperando selección manual de Función...",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#5B21B6"
+        ).pack(anchor="w")
+        ctk.CTkLabel(
+            f_wait_txt,
+            text="Selecciona en Chrome y pulsa Continuar, o Descartar para cancelar este ingrediente.",
+            font=ctk.CTkFont(family="Segoe UI", size=9),
+            text_color="#6D28D9"
+        ).pack(anchor="w")
+
+        f_wait_btns = ctk.CTkFrame(frame_wait_inner, fg_color="transparent")
+        f_wait_btns.grid(row=0, column=1, sticky="e")
+
+        self.btn_confirmar_manual = ctk.CTkButton(
+            f_wait_btns,
+            text="🟢 Continuar ▶",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            fg_color="#0DBE8A",
+            hover_color="#0AA779",
+            text_color="#FFFFFF",
+            height=28,
+            width=105,
+            corner_radius=6,
+            command=self.confirmar_manual
+        )
+        self.btn_confirmar_manual.pack(side="left", padx=(0, 6))
+
+        self.btn_descartar_manual = ctk.CTkButton(
+            f_wait_btns,
+            text="🛑 Descartar",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            fg_color="#EF4444",
+            hover_color="#DC2626",
+            text_color="#FFFFFF",
+            height=28,
+            width=95,
+            corner_radius=6,
+            command=self.descartar_manual
+        )
+        self.btn_descartar_manual.pack(side="left")
 
         # ----------------------------------------------------------------------
         # 2B. TARJETA 2 (COL IZQ): EJECUCIÓN EN PROCESO Y TELEMETRÍA
@@ -4303,10 +4914,44 @@ Paso 7: Haz clic en "▶ Iniciar automatización".
             self.set_estado_badge("Deteniendo...", "#DC2626")
             self.log("🛑 Cancelando proceso... Espere a finalizar la fila actual.", "warning")
 
+    def _on_switch_manual_toggled(self):
+        activo = bool(self.sw_manual_funcion.get())
+        self.modo_manual_funcion = activo
+        if activo:
+            if hasattr(self, 'lbl_manual_sub'):
+                self.lbl_manual_sub.configure(text="Activo: El bot pausará en cada ingrediente para elegir funciones en el portal")
+            self.log("🖐️ Selección manual para 'Función' ACTIVADA: El bot pausará en cada ingrediente para que elijas las funciones en el portal.", "info")
+        else:
+            if hasattr(self, 'lbl_manual_sub'):
+                self.lbl_manual_sub.configure(text="Pausa en cada ingrediente para elegir funciones directamente en el portal")
+            self.log("⚡ Selección automática para 'Función' ACTIVADA: El bot seleccionará automáticamente según el Excel.", "info")
+
+    def activar_espera_manual_ui(self, visible):
+        def _gui():
+            try:
+                if hasattr(self, 'frame_manual_waiting'):
+                    if visible:
+                        self.frame_manual_waiting.grid(row=6, column=0, padx=12, pady=(2, 4), sticky="ew")
+                    else:
+                        self.frame_manual_waiting.grid_forget()
+            except Exception:
+                pass
+        self.after(0, _gui)
+
+    def confirmar_manual(self):
+        self.confirmar_manual_listo = True
+        self.log("▶️ Continuando con el ingrediente actual...", "detail")
+
+    def descartar_manual(self):
+        self.cancelar_ingrediente_actual = True
+        self.confirmar_manual_listo = True
+        self.log("🛑 Ingrediente descartado por el usuario.", "warning")
+
     def finalizar_proceso(self, exito=True):
         self.en_ejecucion = False
         self.debe_pausar = False
         self.debe_detener = False
+        self.activar_espera_manual_ui(False)
 
         self.btn_browse.configure(state="normal")
         self.opt_proceso.configure(state="normal")
@@ -4327,3 +4972,4 @@ Paso 7: Haz clic en "▶ Iniciar automatización".
 if __name__ == "__main__":
     app = App()
     app.mainloop()
+
