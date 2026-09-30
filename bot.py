@@ -48,7 +48,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 PUERTO_CHROME = 9222   # Puerto de depuración de Chrome
 
-VERSION_ACTUAL = "v1.2.1"
+VERSION_ACTUAL = "v1.2.2"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/Danielcastro5/bot-invima/main/version.json"
 FIREBASE_DB_URL = "https://bot-invima-licencias-default-rtdb.firebaseio.com"
 SECRET_SALT_LICENCIA = "BOT_INVIMA_SECURE_AUTH_SALT_2026_V1"
@@ -2667,6 +2667,7 @@ def ejecutar(ruta_excel, nombre_proceso, app):
                                 break
                             continue
 
+                        formulario_enviado = False
                         app.log(f"   💾 Enviando y guardando formulario...", "detail")
                         btn_env = page.locator(selector_enviar).first
                         if btn_env.count() == 0 or not btn_env.is_visible():
@@ -2674,39 +2675,93 @@ def ejecutar(ruta_excel, nombre_proceso, app):
                         if btn_env.count() > 0:
                             try:
                                 btn_env.evaluate("el => el.click()")
+                                formulario_enviado = True
                             except Exception:
                                 btn_env.click(force=True, timeout=timeout_ms)
+                                formulario_enviado = True
                         else:
                             page.locator(".ant-modal-footer button.ant-btn-primary, button:has-text('Guardar'), button:has-text('Adicionar'), button[type='submit']").first.click(force=True)
+                            formulario_enviado = True
 
-                        app.log(f"   ⏳ Esperando cierre de la ventana...", "detail")
-                        try:
-                            page.wait_for_selector(selector_modal, state="hidden", timeout=4000)
-                        except Exception:
+                        app.log(f"   ⏳ Esperando que el portal procese y cierre la ventana...", "detail")
+                        
+                        # Espera inteligente adaptada a tablas grandes o lentitud del portal INVIMA
+                        # En lugar de cortar rígidamente a los 4s, esperamos el tiempo necesario
+                        # monitoreando el cierre real y evitando falsos fallos que duplican registros.
+                        modal_cerrado = False
+                        t_inicio_espera = time.time()
+                        max_espera_cierre = max(timeout_ms / 1000.0, 15.0)
+
+                        while time.time() - t_inicio_espera < max_espera_cierre:
+                            # 1. Comprobar si hay errores de validación en rojo en el formulario
                             errores_form = []
                             try:
-                                loc_errs = page.locator(".ant-form-item-explain-error, .ant-form-item-explain, .ant-form-item-has-error")
-                                for e_idx in range(loc_errs.count()):
-                                    txt_err = loc_errs.nth(e_idx).inner_text().strip()
-                                    if txt_err and txt_err not in errores_form:
-                                        errores_form.append(txt_err)
-                            except Exception:
-                                pass
-
-                            try:
-                                page.keyboard.press("Escape")
-                                time.sleep(0.5)
+                                loc_errs = page.locator(".ant-form-item-explain-error, .ant-form-item-has-error .ant-form-item-explain")
+                                cnt_errs = loc_errs.count()
+                                if cnt_errs > 0:
+                                    for e_idx in range(cnt_errs):
+                                        txt_err = loc_errs.nth(e_idx).inner_text().strip()
+                                        if txt_err and txt_err not in errores_form:
+                                            errores_form.append(txt_err)
                             except Exception:
                                 pass
 
                             if errores_form:
-                                detalle_err = "Error en el portal de INVIMA: " + " | ".join(errores_form)
+                                try:
+                                    page.keyboard.press("Escape")
+                                    time.sleep(0.3)
+                                    btn_canc = page.locator(".ant-modal:not([style*='display: none']) button:has-text('Cancelar'), .ant-modal:not([style*='display: none']) .ant-modal-close").last
+                                    if btn_canc.count() > 0:
+                                        btn_canc.click(force=True)
+                                except Exception:
+                                    pass
+                                raise ValueError("Error en el portal de INVIMA: " + " | ".join(errores_form))
+
+                            # 2. Comprobar si la ventana modal ya se cerró
+                            modales_visibles = page.locator(".ant-modal:not([style*='display: none'])")
+                            if modales_visibles.count() == 0:
+                                modal_cerrado = True
+                                break
+
+                            wraps_visibles = page.locator(".ant-modal-wrap:not(.ant-modal-wrap-hidden):not([style*='display: none'])")
+                            if wraps_visibles.count() == 0:
+                                modal_cerrado = True
+                                break
+
+                            # 3. Comprobar si el botón de abrir nuevo registro ya volvió a estar activo y el modal se fue
+                            try:
+                                if btn_abrir_elem.count() > 0 and btn_abrir_elem.is_visible() and btn_abrir_elem.is_enabled():
+                                    if modales_visibles.count() == 0 or not modales_visibles.first.is_visible():
+                                        modal_cerrado = True
+                                        break
+                            except Exception:
+                                pass
+
+                            # Si el botón de guardar está en estado de carga (.ant-btn-loading), el portal sigue guardando
+                            try:
+                                if page.locator(".ant-btn-loading, .ant-modal .ant-btn-loading").count() > 0:
+                                    time.sleep(0.5)
+                                    continue
+                            except Exception:
+                                pass
+
+                            time.sleep(0.35)
+
+                        if not modal_cerrado:
+                            # Verificación final: si el botón de guardar ya no está visible
+                            btn_env_actual = page.locator(".ant-modal:not([style*='display: none']) .ant-modal-footer button.ant-btn-primary")
+                            if btn_env_actual.count() == 0 or not btn_env_actual.is_visible():
+                                modal_cerrado = True
                             else:
-                                detalle_err = "El formulario modal no se cerró tras hacer clic en Guardar (campos requeridos incompletos o inválidos)."
-                            raise ValueError(detalle_err)
+                                try:
+                                    page.keyboard.press("Escape")
+                                    time.sleep(0.4)
+                                except Exception:
+                                    pass
+                                raise ValueError("El formulario modal no se cerró tras guardar. Posible lentitud extrema en el portal de INVIMA.")
 
                         exito_fila = True
-                        break  # Exit retry loop on success
+                        break  # Salir del bucle de reintentos
 
                     except PWTimeout:
                         ultimo_detalle_error = "Tiempo de espera agotado al interactuar con el elemento o guardar modal."
@@ -2718,6 +2773,14 @@ def ejecutar(ruta_excel, nombre_proceso, app):
                         time.sleep(0.4)
                     except Exception:
                         pass
+
+                    # PROTECCIÓN ESTRICTA CONTRA DUPLICADOS:
+                    # Si el formulario ya había sido enviado al portal de INVIMA (clic en Guardar realizado)
+                    # y falló por tiempo de espera o respuesta de red, NO reintentar abrir otro modal
+                    # para la misma fila, ya que el portal probablemente ya procesó o procesará el registro.
+                    if formulario_enviado:
+                        app.log(f"   ⚠️ Formulario ya fue enviado. Se omite reintento para evitar duplicación de registros en INVIMA.", "warning")
+                        break
 
                 # Evaluación de resultado de la fila
                 if exito_fila:
