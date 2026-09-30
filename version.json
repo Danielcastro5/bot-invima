@@ -1,6 +1,6 @@
 {
-  "version": "v1.2.1",
-  "exe_url": "https://github.com/Danielcastro5/bot-invima/releases/download/v1.2.1/Automatizador_INVIMA.exe",
+  "version": "v1.2.2",
+  "exe_url": "https://github.com/Danielcastro5/bot-invima/releases/download/v1.2.2/Automatizador_INVIMA.exe",
   "config_url": "",
-  "novedades": "• Nuevo interruptor rectangular de diseño suave para activar o desactivar la Selección Manual de Función.\n• Detención Segura Mejorada: Al pausar o detener, el sistema asegura el trámite sin omitir funciones ni guardar ingredientes incompletos, ofreciendo las opciones de Continuar o Descartar.\n• Búsqueda Automática Directa de Funciones: Encuentra y marca directamente las funciones requeridas en la lista del portal sin escribir en el campo y con sistema de reintentos inteligentes.\n• Soporte integrado para Ingredientes, Fórmula Marco y Composición por Grupo."
+  "novedades": "• Optimización de guardado para tablas grandes: Mayor tolerancia y sincronización inteligente con el portal INVIMA para procesar archivos con gran cantidad de registros sin duplicaciones.\n• Protección contra duplicados: Sistema de confirmación en tiempo real para asegurar que una misma fila nunca se registre más de una vez si la página tarda en responder.\n• Mayor fluidez y estabilidad en el cierre de ventanas de registro."
 }
