@@ -78,30 +78,24 @@ PROCESOS = {
             },
             {
                 "columna": "Ingrediente / Mezcla",
-                "selector": r"body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(2) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input, .ant-modal-body .ant-form-item:has-text('Ingrediente') input, .ant-modal-body .ant-form-item:has-text('Mezcla') input",
+                "selector": r".ant-modal-body .ant-form-item:has-text('Ingrediente') input, .ant-modal-body .ant-form-item:has-text('Mezcla') input, .ant-modal-body form > div > div:nth-child(2) input, body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(2) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input",
                 "tipo": "autocompletar",
                 "selector_sugerencia": r".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option",
             },
             {
                 "columna": "Función",
-                "selector": r"body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(3) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input, .ant-modal-body .ant-form-item:has-text('Función') input",
+                "selector": r".ant-modal-body .ant-form-item:has-text('Función') input, .ant-modal-body .ant-form-item:has-text('Funcion') input, .ant-modal-body form > div > div:nth-child(3) input, body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(3) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input",
                 "tipo": "multiselect",
                 "selector_sugerencia": r".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option",
             },
             {
-                "columna": "Listado de referencia",
-                "selector": r".ant-modal:not([style*='display: none']) .ant-form-item:has-text('Listado') input, .ant-modal:not([style*='display: none']) .ant-form-item:has-text('referencia') input, .ant-modal-body .ant-form-item:has-text('Listado') input, .ant-modal-body .ant-form-item:has-text('referencia') input, body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(4) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input, .ant-modal-body .ant-form-item:has-text('Listado de referencia') input, .ant-modal-body .ant-form-item:has-text('Listado') input",
-                "tipo": "autocompletar",
-                "selector_sugerencia": r".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option",
-            },
-            {
                 "columna": "Cantidad",
-                "selector": r"body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(5) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input, .ant-modal-body .ant-form-item:has-text('Cantidad') input",
+                "selector": r".ant-modal-body .ant-form-item:has-text('Cantidad') input, .ant-form-item:has-text('Cantidad') input, body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(5) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input",
                 "tipo": "texto",
             },
             {
                 "columna": "Unidad de medida",
-                "selector": r"body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(6) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input, .ant-modal-body .ant-form-item:has-text('Unidad de medida') input, .ant-modal-body .ant-form-item:has-text('Unidad') input",
+                "selector": r".ant-modal-body .ant-form-item:has-text('Unidad de medida') input, .ant-modal-body .ant-form-item:has-text('Unidad') input, .ant-form-item:has-text('Unidad') input, body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(6) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input",
                 "tipo": "autocompletar",
                 "selector_sugerencia": r".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option",
             },
@@ -112,7 +106,7 @@ PROCESOS = {
             },
             {
                 "columna": "Tamaño de partícula (nm)",
-                "selector": r"body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(8) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input, .ant-modal-body .ant-form-item:has-text('Tamaño de partícula') input, .ant-modal-body .ant-form-item:has-text('partícula') input",
+                "selector": r".ant-modal-body .ant-form-item:has-text('Tamaño de partícula') input, .ant-modal-body .ant-form-item:has-text('partícula') input, .ant-modal-body .ant-form-item:has-text('particula') input, .ant-form-item:has-text('partícula') input, body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(8) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input",
                 "tipo": "texto",
             },
         ]
@@ -152,30 +146,24 @@ PROCESOS = {
             },
             {
                 "columna": "Ingrediente / Mezcla",
-                "selector": r"body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(2) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input, .ant-modal-body .ant-form-item:has-text('Ingrediente') input, .ant-modal-body .ant-form-item:has-text('Mezcla') input",
+                "selector": r".ant-modal-body .ant-form-item:has-text('Ingrediente') input, .ant-modal-body .ant-form-item:has-text('Mezcla') input, .ant-modal-body form > div > div:nth-child(2) input, body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(2) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input",
                 "tipo": "autocompletar",
                 "selector_sugerencia": r".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option",
             },
             {
                 "columna": "Función",
-                "selector": r"body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(3) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input, .ant-modal-body .ant-form-item:has-text('Función') input",
+                "selector": r".ant-modal-body .ant-form-item:has-text('Función') input, .ant-modal-body .ant-form-item:has-text('Funcion') input, .ant-modal-body form > div > div:nth-child(3) input, body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(3) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input",
                 "tipo": "multiselect",
                 "selector_sugerencia": r".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option",
             },
             {
-                "columna": "Listado de referencia",
-                "selector": r".ant-modal:not([style*='display: none']) .ant-form-item:has-text('Listado') input, .ant-modal:not([style*='display: none']) .ant-form-item:has-text('referencia') input, .ant-modal-body .ant-form-item:has-text('Listado') input, .ant-modal-body .ant-form-item:has-text('referencia') input, body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(4) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input, .ant-modal-body .ant-form-item:has-text('Listado de referencia') input, .ant-modal-body .ant-form-item:has-text('Listado') input",
-                "tipo": "autocompletar",
-                "selector_sugerencia": r".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option",
-            },
-            {
                 "columna": "Cantidad",
-                "selector": r"body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(5) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input, .ant-modal-body .ant-form-item:has-text('Cantidad') input",
+                "selector": r".ant-modal-body .ant-form-item:has-text('Cantidad') input, .ant-form-item:has-text('Cantidad') input, body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(5) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input",
                 "tipo": "texto",
             },
             {
                 "columna": "Unidad de medida",
-                "selector": r"body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(6) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input, .ant-modal-body .ant-form-item:has-text('Unidad de medida') input, .ant-modal-body .ant-form-item:has-text('Unidad') input",
+                "selector": r".ant-modal-body .ant-form-item:has-text('Unidad de medida') input, .ant-modal-body .ant-form-item:has-text('Unidad') input, .ant-form-item:has-text('Unidad') input, body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(6) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input",
                 "tipo": "autocompletar",
                 "selector_sugerencia": r".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option",
             },
@@ -186,7 +174,7 @@ PROCESOS = {
             },
             {
                 "columna": "Tamaño de partícula (nm)",
-                "selector": r"body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(8) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input, .ant-modal-body .ant-form-item:has-text('Tamaño de partícula') input, .ant-modal-body .ant-form-item:has-text('partícula') input",
+                "selector": r".ant-modal-body .ant-form-item:has-text('Tamaño de partícula') input, .ant-modal-body .ant-form-item:has-text('partícula') input, .ant-modal-body .ant-form-item:has-text('particula') input, .ant-form-item:has-text('partícula') input, body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(8) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input",
                 "tipo": "texto",
             },
         ]
@@ -225,30 +213,24 @@ PROCESOS = {
             },
             {
                 "columna": "Ingrediente / Mezcla",
-                "selector": r"body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(2) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input, .ant-modal-body .ant-form-item:has-text('Ingrediente') input, .ant-modal-body .ant-form-item:has-text('Mezcla') input",
+                "selector": r".ant-modal-body .ant-form-item:has-text('Ingrediente') input, .ant-modal-body .ant-form-item:has-text('Mezcla') input, .ant-modal-body form > div > div:nth-child(2) input, body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(2) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input",
                 "tipo": "autocompletar",
                 "selector_sugerencia": r".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option",
             },
             {
                 "columna": "Función",
-                "selector": r"body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(3) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input, .ant-modal-body .ant-form-item:has-text('Función') input",
+                "selector": r".ant-modal-body .ant-form-item:has-text('Función') input, .ant-modal-body .ant-form-item:has-text('Funcion') input, .ant-modal-body form > div > div:nth-child(3) input, body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(3) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input",
                 "tipo": "multiselect",
                 "selector_sugerencia": r".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option",
             },
             {
-                "columna": "Listado de referencia",
-                "selector": r".ant-modal:not([style*='display: none']) .ant-form-item:has-text('Listado') input, .ant-modal:not([style*='display: none']) .ant-form-item:has-text('referencia') input, .ant-modal-body .ant-form-item:has-text('Listado') input, .ant-modal-body .ant-form-item:has-text('referencia') input, body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(4) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input, .ant-modal-body .ant-form-item:has-text('Listado de referencia') input, .ant-modal-body .ant-form-item:has-text('Listado') input",
-                "tipo": "autocompletar",
-                "selector_sugerencia": r".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option",
-            },
-            {
                 "columna": "Cantidad",
-                "selector": r"body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(5) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input, .ant-modal-body .ant-form-item:has-text('Cantidad') input",
+                "selector": r".ant-modal-body .ant-form-item:has-text('Cantidad') input, .ant-form-item:has-text('Cantidad') input, body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(5) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input",
                 "tipo": "texto",
             },
             {
                 "columna": "Unidad de medida",
-                "selector": r"body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(6) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input, .ant-modal-body .ant-form-item:has-text('Unidad de medida') input, .ant-modal-body .ant-form-item:has-text('Unidad') input",
+                "selector": r".ant-modal-body .ant-form-item:has-text('Unidad de medida') input, .ant-modal-body .ant-form-item:has-text('Unidad') input, .ant-form-item:has-text('Unidad') input, body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(6) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input",
                 "tipo": "autocompletar",
                 "selector_sugerencia": r".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option",
             },
@@ -259,7 +241,7 @@ PROCESOS = {
             },
             {
                 "columna": "Tamaño de partícula (nm)",
-                "selector": r"body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(8) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input, .ant-modal-body .ant-form-item:has-text('Tamaño de partícula') input, .ant-modal-body .ant-form-item:has-text('partícula') input",
+                "selector": r".ant-modal-body .ant-form-item:has-text('Tamaño de partícula') input, .ant-modal-body .ant-form-item:has-text('partícula') input, .ant-modal-body .ant-form-item:has-text('particula') input, .ant-form-item:has-text('partícula') input, body > div:nth-child(6) > div > div.ant-modal-wrap.ant-modal-centered > div > div:nth-child(1) > div > div.ant-modal-body > form > div > div:nth-child(8) > div > div > div.ant-col.ant-form-item-control.css-1pu91a6 input",
                 "tipo": "texto",
             },
         ]

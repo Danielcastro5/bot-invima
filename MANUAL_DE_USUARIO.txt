@@ -48,11 +48,13 @@ Encabezados requeridos en la Fila 1:
   • Columna: Tipo
   • Columna: Ingrediente / Mezcla
   • Columna: Función
-  • Columna: Listado de referencia
   • Columna: Cantidad
   • Columna: Unidad de medida
   • Columna: ¿Es nanomaterial?
   • Columna: Tamaño de partícula (nm)
+
+💡 NOTA ACTUALIZACIÓN INVIMA:
+La casilla "Listado de referencia" fue eliminada por la plataforma de INVIMA, por lo que YA NO es requerida en la plantilla de Excel ni procesada por el bot.
 
 --- PROCESO 4: Composición (Fórmula Marco) ---
 Nombre exacto de la Hoja en Excel: Fórmula Marco
@@ -61,7 +63,6 @@ Encabezados requeridos en la Fila 1:
   • Columna: Tipo
   • Columna: Ingrediente / Mezcla
   • Columna: Función
-  • Columna: Listado de referencia
   • Columna: Cantidad
   • Columna: Unidad de medida
   • Columna: ¿Es nanomaterial?
@@ -75,7 +76,6 @@ Encabezados requeridos en la Fila 1:
   • Columna: Tipo
   • Columna: Ingrediente / Mezcla
   • Columna: Función
-  • Columna: Listado de referencia
   • Columna: Cantidad
   • Columna: Unidad de medida
   • Columna: ¿Es nanomaterial?

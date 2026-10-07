@@ -1135,10 +1135,9 @@ def llenar_autocompletar_composicion(page, campo, valor, timeout_ms, app):
     if coincidencia.count() > 0:
         hacer_clic_opcion(coincidencia.first)
         time.sleep(pausa_post_clic)
-    elif total_opciones > 0:
-        app.log(f"      🎯 Seleccionando opción en lista para '{valor}'", "detail")
-        hacer_clic_opcion(opciones.first)
-        time.sleep(pausa_post_clic)
+        return
+
+    raise ValueError(f"No se encontró el ingrediente '{valor}' en el catálogo de INVIMA.")
 
 
 def esperar_seleccion_manual_funcion(page, campo, app):
@@ -1508,16 +1507,71 @@ def llenar_multiselect(page, campo, valor, timeout_ms, app):
         pass
 
 
+def _evaluar_coincidencia_select(txt_opcion, valor):
+    """
+    Evalúa la coincidencia entre la opción del menú desplegable y el valor solicitado.
+    Retorna puntuación entre 0 y 100:
+      - 100: Coincidencia textual exacta idéntica.
+      - 95: Coincidencia exacta normalizada (sin tildes, minúsculas, espacios colapsados).
+      - 90: Coincidencia alfanumérica exacta (sin guiones, paréntesis o puntuación).
+      - 80: Mismas palabras en cualquier orden.
+      - 60: Todas las palabras de 'valor' presentes como palabras completas en 'txt_opcion'.
+      - 0: Sin coincidencia o en conflicto de identificadores (números/letras diferentes).
+    """
+    if not txt_opcion or not valor:
+        return 0
+
+    t_raw = str(txt_opcion).strip()
+    v_raw = str(valor).strip()
+    if t_raw == v_raw:
+        return 100
+
+    t_norm = normalizar_texto(t_raw)
+    v_norm = normalizar_texto(v_raw)
+    t_clean = " ".join(t_norm.split())
+    v_clean = " ".join(v_norm.split())
+    if t_clean == v_clean:
+        return 95
+
+    t_alnum = re.sub(r'[^a-z0-9]', '', t_clean)
+    v_alnum = re.sub(r'[^a-z0-9]', '', v_clean)
+    if t_alnum and t_alnum == v_alnum:
+        return 90
+
+    t_tokens = t_clean.split()
+    v_tokens = v_clean.split()
+    if not t_tokens or not v_tokens:
+        return 0
+
+    if sorted(t_tokens) == sorted(v_tokens):
+        return 80
+
+    # Verificación estricta de números y códigos unicarácter (ej: "1", "2", "10", "A", "B", "II")
+    # Evita que "Mezcla 1" elija "Mezcla 2" o "Mezcla 10", o que "Mezcla A" elija "Mezcla B"
+    codigos_v = [tok for tok in v_tokens if tok.isdigit() or len(tok) == 1 or tok in ["i", "ii", "iii", "iv", "v"]]
+    codigos_t = [tok for tok in t_tokens if tok.isdigit() or len(tok) == 1 or tok in ["i", "ii", "iii", "iv", "v"]]
+    if codigos_v or codigos_t:
+        for cv in codigos_v:
+            if cv not in codigos_t:
+                return 0
+        for ct in codigos_t:
+            if ct not in codigos_v:
+                return 0
+
+    # Todas las palabras deben aparecer como palabras completas delimitadas
+    if all(re.search(r'\b' + re.escape(tok) + r'\b', t_clean) for tok in v_tokens):
+        return 60
+
+    return 0
+
+
 def llenar_select(page, campo, valor, timeout_ms, app):
     valor_norm = normalizar_texto(valor)
     col_nombre = campo.get("columna", "")
     selector_config = campo.get("selector", "")
 
     modal_activo = page.locator(".ant-modal:not([style*='display: none'])")
-    if modal_activo.count() > 0:
-        modal_top = modal_activo.last
-    else:
-        modal_top = page
+    modal_top = modal_activo.last if modal_activo.count() > 0 else page
 
     targets_posibles = [
         modal_top.locator(selector_config).last if selector_config else None,
@@ -1538,7 +1592,7 @@ def llenar_select(page, campo, valor, timeout_ms, app):
             if target.count() > 0:
                 target.scroll_into_view_if_needed(timeout=400)
                 target.click(force=True, timeout=1000)
-                time.sleep(0.25)
+                time.sleep(0.3)
                 if page.locator(dropdown_sel).count() > 0:
                     menu_abierto = True
                     break
@@ -1548,131 +1602,155 @@ def llenar_select(page, campo, valor, timeout_ms, app):
     if not menu_abierto:
         try:
             modal_top.locator(f".ant-form-item:has-text('{col_nombre}')").last.click(force=True, timeout=1000)
-            time.sleep(0.25)
+            time.sleep(0.3)
         except Exception:
             pass
 
     page.wait_for_selector(dropdown_sel, timeout=min(4000, timeout_ms))
-    
+    time.sleep(0.2)
+
     dropdown_activo = page.locator(dropdown_sel).last
-    opciones = dropdown_activo.locator(".ant-select-item-option, div[role='option'], .ant-select-item-option-content")
+    opciones = dropdown_activo.locator(".ant-select-item-option:not(.ant-select-item-option-disabled)")
     total_opciones = opciones.count()
 
     if total_opciones == 0:
-        opciones = page.locator(dropdown_sel + " .ant-select-item-option")
+        opciones = page.locator(dropdown_sel + " .ant-select-item-option:not(.ant-select-item-option-disabled)")
         total_opciones = opciones.count()
 
     if total_opciones == 0:
         raise ValueError(f"No se desplegaron opciones en el menú para '{valor}'")
 
-    app.log(f"      🔍 Se encontraron {total_opciones} opciones en el menú desplegable para '{valor}'.", "detail")
+    app.log(f"      🔍 Buscando '{valor}' en el menú desplegable ({total_opciones} visibles)...", "detail")
 
+    # 1. Coincidencia EXACTA en opciones visibles de primera instancia (Score >= 90)
     for k in range(total_opciones):
-        txt_opcion = opciones.nth(k).inner_text()
-        txt_norm = normalizar_texto(txt_opcion)
-        if txt_norm == valor_norm:
-            app.log(f"      🎯 Seleccionada opción '{txt_opcion.strip()}' (para '{valor}')", "detail")
+        try:
+            txt_opc = opciones.nth(k).inner_text().strip()
+        except Exception:
+            continue
+        sc = _evaluar_coincidencia_select(txt_opc, valor)
+        if sc >= 90:
+            app.log(f"      🎯 Seleccionada opción EXACTA: '{txt_opc}' (para '{valor}')", "detail")
             hacer_clic_opcion(opciones.nth(k))
-            time.sleep(0.2)
+            time.sleep(0.25)
             return
 
-    for k in range(total_opciones):
-        txt_opcion = opciones.nth(k).inner_text()
-        txt_norm = normalizar_texto(txt_opcion)
-        if txt_norm.startswith(valor_norm) or valor_norm in txt_norm:
-            app.log(f"      🎯 Seleccionada opción semejante '{txt_opcion.strip()}' (para '{valor}')", "detail")
-            hacer_clic_opcion(opciones.nth(k))
-            time.sleep(0.2)
-            return
-
-    # 3. Coincidencia por palabras clave (tolerancia plural/singular, ej: 'GRUPO COLORES' vs 'GRUPOS COLORES')
-    palabras_val = [p for p in valor_norm.split() if len(p) > 2]
-    if palabras_val:
-        for k in range(total_opciones):
-            txt_opcion = opciones.nth(k).inner_text().strip()
-            txt_norm = normalizar_texto(txt_opcion)
-            palabras_opt = txt_norm.split()
-            if all(any(pv in po or po in pv for po in palabras_opt) for pv in palabras_val):
-                app.log(f"      🎯 Seleccionada opción coincidente '{txt_opcion}' (para '{valor}')", "detail")
-                hacer_clic_opcion(opciones.nth(k))
-                time.sleep(0.2)
-                return
-
-    try:
-        opc_has = dropdown_activo.locator(f":has-text('{valor}')").last
-        if opc_has.count() > 0 and opc_has.is_visible():
-            hacer_clic_opcion(opc_has)
-            time.sleep(0.2)
-            return
-    except Exception:
-        pass
-
-    # Soporte para listas virtuales con muchas opciones (ej: listas de grupos > 10 elementos)
+    # 2. Recorrido exhaustivo si la lista es virtual (rc-virtual-list)
     holder = dropdown_activo.locator(".rc-virtual-list-holder")
+    opciones_recopiladas = {}  # norm: (opt_elem, txt, pos, score)
+
     if holder.count() > 0:
         try:
             scroll_h = holder.evaluate("el => el.scrollHeight")
-            client_h = holder.evaluate("el => el.clientHeight") or 256
-            step = 220
-            app.log(f"      📜 Buscando '{valor}' en lista desplegable amplia...", "detail")
-            for pos in range(0, scroll_h + step, step):
-                holder.evaluate(f"""el => {{
-                    el.scrollTop = {pos};
-                    el.dispatchEvent(new Event('scroll'));
-                }}""")
-                time.sleep(0.03)
-                items_js = dropdown_activo.evaluate("""
-                    el => Array.from(el.querySelectorAll('.ant-select-item-option')).map((node, i) => ({
-                        i: i,
-                        text: (node.innerText || '').trim()
-                    }))
-                """)
-                for item in items_js:
-                    txt_opt = item["text"]
-                    txt_opt_norm = normalizar_texto(txt_opt)
-                    opt_elem = dropdown_activo.locator(".ant-select-item-option").nth(item["i"])
-                    if txt_opt_norm == valor_norm:
-                        app.log(f"      🎯 Seleccionada opción '{txt_opt}' (para '{valor}')", "detail")
-                        hacer_clic_opcion(opt_elem)
-                        time.sleep(0.2)
-                        return
-                    if (txt_opt_norm.startswith(valor_norm) or valor_norm in txt_opt_norm) and not (len(txt_opt) > 3 and txt_opt[-1].isdigit()):
-                        app.log(f"      🎯 Seleccionada opción semejante '{txt_opt}' (para '{valor}')", "detail")
-                        hacer_clic_opcion(opt_elem)
-                        time.sleep(0.2)
-                        return
-                    if palabras_val and all(any(pv in po or po in pv for po in txt_opt_norm.split()) for pv in palabras_val):
-                        app.log(f"      🎯 Seleccionada opción coincidente '{txt_opt}' (para '{valor}') tras desplazamiento", "detail")
-                        hacer_clic_opcion(opt_elem)
-                        time.sleep(0.2)
-                        return
-        except Exception as e_scroll:
-            app.log(f"      ⚠️ Detalle en búsqueda de lista: {e_scroll}", "detail")
+            client_h = holder.evaluate("el => el.clientHeight")
+            step = max(int(client_h * 0.7), 160)
+            app.log(f"      📜 Explorando menú desplegable amplio ({scroll_h}px)...", "detail")
 
-    # Fallback si el selector permite o requiere búsqueda por tipeo (showSearch)
+            for pos in range(0, scroll_h + step, step):
+                holder.evaluate(f"el => {{ el.scrollTop = {pos}; el.dispatchEvent(new Event('scroll')); }}")
+                time.sleep(0.04)
+
+                items_vis = dropdown_activo.locator(".ant-select-item-option:not(.ant-select-item-option-disabled)")
+                for v_idx in range(items_vis.count()):
+                    opt_item = items_vis.nth(v_idx)
+                    try:
+                        txt_item = opt_item.inner_text().strip()
+                    except Exception:
+                        continue
+                    if not txt_item:
+                        continue
+
+                    sc = _evaluar_coincidencia_select(txt_item, valor)
+                    t_norm = normalizar_texto(txt_item)
+                    if t_norm not in opciones_recopiladas:
+                        opciones_recopiladas[t_norm] = (opt_item, txt_item, pos, sc)
+
+                    if sc >= 90:
+                        app.log(f"      🎯 Encontrada opción EXACTA en lista: '{txt_item}' (para '{valor}')", "detail")
+                        hacer_clic_opcion(opt_item)
+                        time.sleep(0.25)
+                        return
+        except Exception as e_sc:
+            app.log(f"      ⚠️ Detalle en desplazamiento de lista: {e_sc}", "detail")
+
+    # 3. Intentar filtrar escribiendo en el input de búsqueda del select si existe
     try:
         search_inp = modal_top.locator(".ant-select-focused input, .ant-select-open input, .ant-select-selection-search input").last
         if search_inp.count() > 0 and search_inp.is_visible():
             search_inp.fill("")
             time.sleep(0.05)
-            search_inp.type(str(valor), delay=40)
-            time.sleep(0.4)
+            search_inp.type(str(valor), delay=35)
+            time.sleep(0.35)
             opcs_filtradas = dropdown_activo.locator(".ant-select-item-option:not(.ant-select-item-option-disabled)")
-            if opcs_filtradas.count() > 0:
-                for idx_f in range(opcs_filtradas.count()):
-                    txt_f = opcs_filtradas.nth(idx_f).inner_text().strip()
-                    if normalizar_texto(txt_f) == valor_norm or valor_norm in normalizar_texto(txt_f):
-                        app.log(f"      🎯 Seleccionada opción filtrada por búsqueda '{txt_f}' (para '{valor}')", "detail")
-                        hacer_clic_opcion(opcs_filtradas.nth(idx_f))
-                        time.sleep(0.2)
-                        return
-                hacer_clic_opcion(opcs_filtradas.first)
-                time.sleep(0.2)
-                return
+            for idx_f in range(opcs_filtradas.count()):
+                txt_f = opcs_filtradas.nth(idx_f).inner_text().strip()
+                sc_f = _evaluar_coincidencia_select(txt_f, valor)
+                if sc_f >= 90:
+                    app.log(f"      🎯 Seleccionada opción filtrada EXACTA: '{txt_f}' (para '{valor}')", "detail")
+                    hacer_clic_opcion(opcs_filtradas.nth(idx_f))
+                    time.sleep(0.25)
+                    return
+                elif sc_f >= 60:
+                    app.log(f"      🎯 Seleccionada opción filtrada coincidente: '{txt_f}' (para '{valor}')", "detail")
+                    hacer_clic_opcion(opcs_filtradas.nth(idx_f))
+                    time.sleep(0.25)
+                    return
     except Exception:
         pass
 
-    raise ValueError(f"La opción '{valor}' no se encuentra en la lista del menú activo")
+    # 4. Si no hubo coincidencia exacta, buscar si existe una ÚNICA coincidencia válida no ambigua
+    if opciones_recopiladas:
+        candidatos = [item for item in opciones_recopiladas.values() if item[3] >= 60]
+        if len(candidatos) == 1:
+            elem_c, txt_c, pos_c, sc_c = candidatos[0]
+            app.log(f"      🎯 Seleccionada única opción coincidente: '{txt_c}' (para '{valor}')", "detail")
+            try:
+                holder.evaluate(f"el => {{ el.scrollTop = {pos_c}; el.dispatchEvent(new Event('scroll')); }}")
+                time.sleep(0.05)
+            except Exception:
+                pass
+            hacer_clic_opcion(elem_c)
+            time.sleep(0.25)
+            return
+        elif len(candidatos) > 1:
+            nombres_ambiguos = [c[1] for c in candidatos]
+            app.log(f"      ⚠️ Coincidencia ambigua para '{valor}': {nombres_ambiguos}", "warning")
+            raise ValueError(f"El valor '{valor}' es ambiguo en la lista de '{col_nombre}'. Coincide con: {nombres_ambiguos}. Especifica el nombre exacto en el Excel.")
+    else:
+        candidatos_peq = []
+        for k in range(total_opciones):
+            try:
+                txt_opc = opciones.nth(k).inner_text().strip()
+            except Exception:
+                continue
+            sc = _evaluar_coincidencia_select(txt_opc, valor)
+            if sc >= 60:
+                candidatos_peq.append((opciones.nth(k), txt_opc))
+        if len(candidatos_peq) == 1:
+            elem_p, txt_p = candidatos_peq[0]
+            app.log(f"      🎯 Seleccionada única opción coincidente: '{txt_p}' (para '{valor}')", "detail")
+            hacer_clic_opcion(elem_p)
+            time.sleep(0.25)
+            return
+        elif len(candidatos_peq) > 1:
+            nombres_ambiguos = [c[1] for c in candidatos_peq]
+            raise ValueError(f"El valor '{valor}' es ambiguo en la lista de '{col_nombre}'. Coincide con: {nombres_ambiguos}. Especifica el nombre exacto en el Excel.")
+
+    # 5. NO SE ENCONTRÓ: Reportar opciones disponibles sin adivinar ni elegir al azar
+    nombres_visibles = [t[1] for t in opciones_recopiladas.values()] if opciones_recopiladas else []
+    if not nombres_visibles:
+        for idx_o in range(min(total_opciones, 12)):
+            try:
+                t = opciones.nth(idx_o).inner_text().strip()
+                if t and t not in nombres_visibles:
+                    nombres_visibles.append(t)
+            except Exception:
+                pass
+
+    app.log(f"      ❌ La opción '{valor}' NO se encuentra en el menú desplegable de '{col_nombre}'.", "error")
+    if nombres_visibles:
+        app.log(f"      📋 Opciones encontradas en el portal ({len(nombres_visibles)}): [{', '.join(nombres_visibles[:8])}]", "warning")
+    raise ValueError(f"La opción '{valor}' no se encuentra en el menú desplegable de '{col_nombre}'. Opciones en el portal: {nombres_visibles[:8]}")
 
 
 def llenar_switch(page, campo, valor, app):
@@ -1717,133 +1795,8 @@ def llenar_switch(page, campo, valor, app):
 
 
 def _seleccionar_primera_opcion_listado_referencia(page, campo, app, timeout_ms=6000):
-    # 1. Obtener el modal activo superior
-    modal_activo = page.locator(".ant-modal:not([style*='display: none'])")
-    modal_top = modal_activo.last if modal_activo.count() > 0 else page
-
-    # 2. Localizadores específicos del input de Listado de referencia
-    candidatos = [
-        modal_top.locator(".ant-form-item:has-text('Listado') input").last,
-        modal_top.locator(".ant-form-item:has-text('referencia') input").last,
-        modal_top.locator(".ant-form-item:has-text('Referencia') input").last,
-        modal_top.locator("form > div > div:nth-child(4) input").last,
-        modal_top.locator("#referenceList, input[id*='reference'], input[id*='Reference']").last,
-        modal_top.locator(".ant-form-item:has-text('Listado') .ant-select-selector").last,
-        modal_top.locator(".ant-form-item:has-text('referencia') .ant-select-selector").last,
-        modal_top.locator("form > div > div:nth-child(4) .ant-select-selector").last,
-        page.locator(".ant-modal-body .ant-form-item:has-text('Listado') input").last,
-        page.locator(campo.get("selector", "")).last,
-    ]
-
-    target = None
-    for cand in candidatos:
-        try:
-            if cand.count() > 0:
-                target = cand
-                break
-        except Exception:
-            continue
-
-    if not target or target.count() == 0:
-        app.log("   ⚠️ No se encontró el campo 'Listado de referencia' en el formulario activo.", "warning")
-        raise Exception("El campo obligatorio 'Listado de referencia' no se encontró en el modal actual.")
-
-    # Si el target no es input directo, buscar su input interno
-    try:
-        if target.evaluate("el => el.tagName.toLowerCase()") != "input":
-            inp_hijo = target.locator("input").first
-            if inp_hijo.count() > 0:
-                target = inp_hijo
-    except Exception:
-        pass
-
-    app.log("   ➔ Listado de referencia: (Vacío en Excel -> Disparando búsqueda y seleccionando primera opción)...", "detail")
-
-    # Función auxiliar para hacer clic JavaScript en la primera opción visible del dropdown
-    def intentar_clic_js():
-        return page.evaluate("""() => {
-            const dropdowns = Array.from(document.querySelectorAll('.ant-select-dropdown')).filter(d => {
-                const style = window.getComputedStyle(d);
-                return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
-            });
-            if (dropdowns.length === 0) return null;
-            const activeDd = dropdowns[dropdowns.length - 1];
-            const opt = activeDd.querySelector('.ant-select-item-option');
-            if (opt) {
-                const text = (opt.innerText || opt.textContent || '').trim();
-                opt.scrollIntoView();
-                const content = opt.querySelector('.ant-select-item-option-content') || opt;
-                content.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-                content.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-                content.click();
-                return text;
-            }
-            return null;
-        }""")
-
-    # 3. Primer intento: Clic en el campo y flecha abajo
-    try:
-        target.scroll_into_view_if_needed(timeout=800)
-        target.click(force=True, timeout=1000)
-        time.sleep(0.3)
-        page.keyboard.press("ArrowDown")
-        time.sleep(0.3)
-        res_js = intentar_clic_js()
-        if res_js:
-            app.log(f"      🎯 Seleccionada opción de referencia: '{res_js}'", "detail")
-            time.sleep(0.6)
-            return True
-    except Exception:
-        pass
-
-    # 4. Segundo intento: Tipear letras clave para disparar la consulta al catálogo
-    terminos = ["a", "d", "c", "i", "e", "CosIng", " "]
-    for termino in terminos:
-        try:
-            target.click(force=True, timeout=1000)
-            time.sleep(0.1)
-            target.fill("")
-            time.sleep(0.1)
-            target.type(termino, delay=60)
-            time.sleep(0.6)
-
-            # Apenas escribe, chequear si el dropdown se abrió y hacer clic JS
-            for _ in range(5):
-                res_js = intentar_clic_js()
-                if res_js:
-                    app.log(f"      🎯 Seleccionada opción de referencia: '{res_js}'", "detail")
-                    time.sleep(0.8)
-                    return True
-                time.sleep(0.3)
-
-            # Si no hizo clic JS, probar inmediatamente ArrowDown y Enter sin volver a clickear el input
-            page.keyboard.press("ArrowDown")
-            time.sleep(0.2)
-            page.keyboard.press("Enter")
-            time.sleep(0.6)
-
-            # Verificar si se seleccionó algo en el input
-            val_input = target.evaluate("el => el.value") or ""
-            if val_input and val_input != termino:
-                app.log(f"      🎯 Opción confirmada por teclado: '{val_input}'", "detail")
-                time.sleep(0.4)
-                return True
-        except Exception:
-            continue
-
-    # 5. Si ninguna búsqueda funcionó, verificar si hay opciones visibles y cliquearlas con Playwright
-    try:
-        opciones_visibles = page.locator(".ant-select-dropdown:visible .ant-select-item-option:visible, .ant-select-dropdown:visible .ant-select-item-option-content:visible")
-        if opciones_visibles.count() > 0:
-            txt_opc = opciones_visibles.first.inner_text().strip()
-            app.log(f"      🎯 Clic Playwright en opción visible: '{txt_opc}'", "detail")
-            opciones_visibles.first.click(force=True)
-            time.sleep(0.8)
-            return True
-    except Exception:
-        pass
-
-    raise Exception("El campo 'Listado de referencia' es obligatorio y no se pudo seleccionar ninguna opción de la lista.")
+    app.log("   ℹ️ 'Listado de referencia' ya no es requerido por INVIMA. Omitiendo...", "detail")
+    return True
 
 
 def llenar_campo_composicion(page, campo, fila, app, cfg):
@@ -1856,6 +1809,10 @@ def llenar_campo_composicion(page, campo, fila, app, cfg):
                 break
 
     es_listado_ref = "listado" in col_nombre.lower() or "referencia" in col_nombre.lower()
+    if es_listado_ref:
+        app.log(f"   ℹ️ Campo '{col_nombre}' omitido (eliminado por INVIMA en el portal).", "detail")
+        return
+
     timeout_ms = getattr(cfg, "TIMEOUT_SEGUNDOS", 15) * 1000
 
     tipo_fila = normalizar_texto(fila.get("Tipo") or fila.get("tipo") or "")
@@ -1884,8 +1841,6 @@ def llenar_campo_composicion(page, campo, fila, app, cfg):
             return
 
     if not valor or str(valor).strip() == "":
-        if es_listado_ref and tipo_fila != "mezcla":
-            _seleccionar_primera_opcion_listado_referencia(page, campo, app, timeout_ms)
         return
 
     # Buscar target en el modal activo superior
@@ -1931,14 +1886,18 @@ def llenar_campo_composicion(page, campo, fila, app, cfg):
             time.sleep(0.1)
         elif campo["tipo"] == "select":
             llenar_select(page, campo, valor, timeout_ms, app)
+            if "tipo" in col_norm and tipo_fila == "mezcla":
+                time.sleep(0.5)
         elif campo["tipo"] == "autocompletar":
             es_campo_ing_mezcla = "mezcla" in col_norm or "ingrediente" in col_norm
             es_campo_grupo = "grupo" in col_norm
             if tipo_fila == "mezcla" and es_campo_ing_mezcla:
-                app.log(f"   ℹ️ Modo Mezcla: seleccionando '{valor}' directamente de la lista desplegable sin escribir...", "detail")
+                app.log(f"   ℹ️ Modo Mezcla: seleccionando '{valor}' de la lista desplegable de mezclas...", "detail")
+                time.sleep(0.35)
                 campo_mezcla = dict(campo)
+                campo_mezcla["columna"] = "Mezcla"
                 campo_mezcla["tipo"] = "select"
-                campo_mezcla["selector"] = ".ant-select:has(#referenceMixtureId) .ant-select-selector, .ant-form-item:has(#referenceMixtureId) .ant-select-selector"
+                campo_mezcla["selector"] = ".ant-select:has(#referenceMixtureId) .ant-select-selector, .ant-form-item:has(#referenceMixtureId) .ant-select-selector, .ant-modal:not([style*='display: none']) .ant-form-item:has-text('Mezcla') .ant-select-selector, .ant-form-item:has-text('Mezcla') .ant-select-selector, #referenceMixtureId"
                 llenar_select(page, campo_mezcla, valor, timeout_ms, app)
             elif es_campo_grupo:
                 app.log(f"   ℹ️ Campo de grupo: seleccionando '{valor}' directamente de la lista desplegable...", "detail")
@@ -3471,6 +3430,8 @@ Paso 7: Haz clic en "▶ Iniciar automatización".
         try:
             base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
             plantilla_personalizada = os.path.join(base_dir, "plantilla_base.xlsx")
+            if not os.path.exists(plantilla_personalizada):
+                plantilla_personalizada = obtener_ruta_recurso("plantilla_base.xlsx")
             if os.path.exists(plantilla_personalizada):
                 shutil.copyfile(plantilla_personalizada, ruta_destino)
                 self.log(f"📥 Plantilla oficial exportada exitosamente: {os.path.basename(ruta_destino)}", "info")
@@ -3500,28 +3461,28 @@ Paso 7: Haz clic en "▶ Iniciar automatización".
                     "nombre": "Ingredientes",
                     "columnas": [
                         "Tipo", "Ingrediente / Mezcla", "Función",
-                        "Listado de referencia", "Cantidad", "Unidad de medida",
+                        "Cantidad", "Unidad de medida",
                         "¿Es nanomaterial?", "Tamaño de partícula (nm)"
                     ],
-                    "ejemplo": ["Ingrediente", "Glicerina", "Humectante", "CosIng", "5", "%", "No", ""]
+                    "ejemplo": ["Ingrediente", "Glicerina", "Humectante", "5", "%", "No", ""]
                 },
                 {
                     "nombre": "Fórmula Marco",
                     "columnas": [
                         "Nombre de la fórmula marco", "Tipo", "Ingrediente / Mezcla",
-                        "Función", "Listado de referencia", "Cantidad", "Unidad de medida",
+                        "Función", "Cantidad", "Unidad de medida",
                         "¿Es nanomaterial?", "Tamaño de partícula (nm)"
                     ],
-                    "ejemplo": ["Fórmula Base Labial", "Ingrediente", "Agua", "Solvente", "CosIng", "80", "%", "No", ""]
+                    "ejemplo": ["Fórmula Base Labial", "Ingrediente", "Agua", "Solvente", "80", "%", "No", ""]
                 },
                 {
                     "nombre": "Composición por grupo",
                     "columnas": [
                         "Grupo", "Fórmula Marco", "Tipo", "Ingrediente / Mezcla",
-                        "Función", "Listado de referencia", "Cantidad", "Unidad de medida",
+                        "Función", "Cantidad", "Unidad de medida",
                         "¿Es nanomaterial?", "Tamaño de partícula (nm)"
                     ],
-                    "ejemplo": ["Grupo Labial Mate", "Fórmula Base Labial", "Ingrediente", "CI 77491", "Colorante", "CosIng", "2", "%", "No", ""]
+                    "ejemplo": ["Grupo Labial Mate", "Fórmula Base Labial", "Ingrediente", "CI 77491", "Colorante", "2", "%", "No", ""]
                 },
                 {
                     "nombre": "Características Organolépticas",
