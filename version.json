@@ -1,0 +1,6 @@
+{
+  "version": "v1.2.4",
+  "exe_url": "https://github.com/Danielcastro5/bot-invima/releases/download/v1.2.4/Automatizador_INVIMA.exe",
+  "config_url": "",
+  "novedades": "• Corrección en Composición por Grupo: Prevención automática de duplicados para evitar reingresar ingredientes ya guardados dentro del mismo grupo.\n• Mejora en la transición fluida de guardado entre grupos consecutivos.\n• Mayor precisión y estabilidad en la selección de mezclas y colorantes."
+}

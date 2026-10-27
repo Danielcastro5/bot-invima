@@ -1,6 +1,0 @@
-{
-  "version": "v1.2.3",
-  "exe_url": "https://github.com/Danielcastro5/bot-invima/releases/download/v1.2.3/Automatizador_INVIMA.exe",
-  "config_url": "",
-  "novedades": "• Ajuste oficial INVIMA: Eliminación del campo 'Listado de referencia' en Ingredientes, Fórmula Marco y Composición por grupo.\n• Corrección de selección en Mezclas: Coincidencia inteligente y estricta para evitar selecciones incorrectas en menús desplegables.\n• Actualización de plantilla Excel oficial y manual de usuario."
-}
