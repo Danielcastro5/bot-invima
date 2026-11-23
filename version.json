@@ -1,6 +1,6 @@
 {
-  "version": "v1.2.4",
-  "exe_url": "https://github.com/Danielcastro5/bot-invima/releases/download/v1.2.4/Automatizador_INVIMA.exe",
+  "version": "v1.2.5",
+  "exe_url": "https://github.com/Danielcastro5/bot-invima/releases/download/v1.2.5/Automatizador_INVIMA.exe",
   "config_url": "",
-  "novedades": "• Corrección en Composición por Grupo: Prevención automática de duplicados para evitar reingresar ingredientes ya guardados dentro del mismo grupo.\n• Mejora en la transición fluida de guardado entre grupos consecutivos.\n• Mayor precisión y estabilidad en la selección de mezclas y colorantes."
+  "novedades": "• Corrección en Información General (Presentaciones y Grupos): Ahora el sistema ubica cada botón directamente por su nombre visible en pantalla, evitando abrir opciones superiores si se despliegan otras secciones del formulario.\n• Validación automática de la ventana abierta para garantizar que corresponda al proceso seleccionado antes de ingresar los datos."
 }
